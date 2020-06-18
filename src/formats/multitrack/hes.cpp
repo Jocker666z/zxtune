@@ -71,7 +71,7 @@ namespace Multitrack
 
     const std::size_t MIN_SIZE = 256;
     
-    const uint_t TOTAL_TRACKS_COUNT = 32;
+    const uint_t TOTAL_TRACKS_COUNT = 256;
      
     const RawHeader* GetHeader(Binary::View rawData)
     {
