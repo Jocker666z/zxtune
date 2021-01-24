@@ -24,39 +24,39 @@
 namespace Module
 {
   template<unsigned Channels>
-  Devices::DAC::Chip::Ptr CreateChip(Parameters::Accessor::Ptr params, Sound::Receiver::Ptr target)
+  Devices::DAC::Chip::Ptr CreateChip(uint_t samplerate, Parameters::Accessor::Ptr params)
   {
     typedef Sound::FixedChannelsMatrixMixer<Channels> MixerType;
-    const typename MixerType::Ptr mixer = MixerType::Create();
-    const Parameters::Accessor::Ptr pollParams = Sound::CreateMixerNotificationParameters(params, mixer);
-    const Devices::DAC::ChipParameters::Ptr chipParams = Module::DAC::CreateChipParameters(pollParams);
-    return Devices::DAC::CreateChip(chipParams, mixer, target);
+    auto mixer = MixerType::Create();
+    auto pollParams = Sound::CreateMixerNotificationParameters(std::move(params), mixer);
+    auto chipParams = Module::DAC::CreateChipParameters(samplerate, std::move(pollParams));
+    return Devices::DAC::CreateChip(std::move(chipParams), std::move(mixer));
   }
 
-  Devices::DAC::Chip::Ptr CreateChip(unsigned channels, Parameters::Accessor::Ptr params, Sound::Receiver::Ptr target)
+  Devices::DAC::Chip::Ptr CreateChip(unsigned channels, uint_t samplerate, Parameters::Accessor::Ptr params)
   {
     switch (channels)
     {
     case 3:
-      return CreateChip<3>(params, target);
+      return CreateChip<3>(samplerate, std::move(params));
     case 4:
-      return CreateChip<4>(params, target);
+      return CreateChip<4>(samplerate, std::move(params));
     default:
-      return Devices::DAC::Chip::Ptr();
+      return {};
     };
   }
 
   class DACHolder : public Holder
   {
   public:
-    explicit DACHolder(DAC::Chiptune::Ptr chiptune)
+    DACHolder(DAC::Chiptune::Ptr chiptune)
       : Tune(std::move(chiptune))
     {
     }
 
     Information::Ptr GetModuleInformation() const override
     {
-      return Tune->GetInformation();
+      return CreateTrackInfo(Tune->GetFrameDuration(), Tune->GetTrackModel());
     }
 
     Parameters::Accessor::Ptr GetModuleProperties() const override
@@ -64,13 +64,12 @@ namespace Module
       return Tune->GetProperties();
     }
 
-    Renderer::Ptr CreateRenderer(Parameters::Accessor::Ptr params, Sound::Receiver::Ptr target) const override
+    Renderer::Ptr CreateRenderer(uint_t samplerate, Parameters::Accessor::Ptr params) const override
     {
-      const Sound::RenderParameters::Ptr renderParams = Sound::RenderParameters::Create(params);
-      const DAC::DataIterator::Ptr iterator = Tune->CreateDataIterator();
-      const Devices::DAC::Chip::Ptr chip = CreateChip(Tune->GetInformation()->ChannelsCount(), params, target);
-      Tune->GetSamples(chip);
-      return DAC::CreateRenderer(renderParams, iterator, chip);
+      auto iterator = Tune->CreateDataIterator();
+      auto chip = CreateChip(Tune->GetTrackModel()->GetChannelsCount(), samplerate, std::move(params));
+      Tune->GetSamples(*chip);
+      return DAC::CreateRenderer(Tune->GetFrameDuration()/*TODO: speed variation*/, std::move(iterator), std::move(chip));
     }
   private:
     const DAC::Chiptune::Ptr Tune;
@@ -86,13 +85,13 @@ namespace Module
 
     Holder::Ptr CreateModule(const Parameters::Accessor& /*params*/, const Binary::Container& data, Parameters::Container::Ptr properties) const override
     {
-      if (const DAC::Chiptune::Ptr chiptune = Delegate->CreateChiptune(data, properties))
+      if (auto chiptune = Delegate->CreateChiptune(data, std::move(properties)))
       {
-        return MakePtr<DACHolder>(chiptune);
+        return MakePtr<DACHolder>(std::move(chiptune));
       }
       else
       {
-        return Holder::Ptr();
+        return {};
       }
     }
   private:

@@ -929,7 +929,7 @@ namespace Chiptune
     }
 
     //TODO: size may be <256
-    const std::string FORMAT(
+    const StringView FORMAT(
       "?01-30"       //uint16_t Size;
       "?00|60-fb"    //uint16_t SamplesOffset;
       "?00|60-fb"    //uint16_t OrnamentsOffset;
@@ -960,7 +960,7 @@ namespace Chiptune
         return Format;
       }
 
-      bool Check(const Binary::Container& rawData) const override
+      bool Check(Binary::View rawData) const override
       {
         const auto data = MakeContainer(rawData);
         return Format->Match(data) && FastCheck(data);

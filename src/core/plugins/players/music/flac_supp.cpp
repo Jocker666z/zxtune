@@ -25,8 +25,6 @@
 #include <module/players/properties_helper.h>
 #include <module/players/properties_meta.h>
 #include <module/players/streaming.h>
-#include <parameters/tracking_helper.h>
-#include <sound/render_params.h>
 #include <sound/resampler.h>
 //3rdparty
 #define FLAC__NO_DLL
@@ -47,9 +45,7 @@ namespace Flac
     
     uint_t Frequency = 0;
     uint_t TotalSamples = 0;
-    uint_t FramesCount = 0;
     uint_t MaxFrameSize = 0;
-    uint_t SamplesPerFrame = 0;
     Binary::Data::Ptr Content;
   };
 
@@ -135,11 +131,6 @@ namespace Flac
       Reset();
     }
     
-    uint_t GetFrequency() const
-    {
-      return Data->Frequency;
-    }
-    
     Sound::Chunk RenderFrame()
     {
       while (Chunk.empty())
@@ -166,9 +157,8 @@ namespace Flac
       Chunk.clear();
     }
     
-    void Seek(uint_t frame)
+    void Seek(uint64_t sample)
     {
-      const auto sample = uint64_t(Data->SamplesPerFrame) * frame;
       if (! ::FLAC__stream_decoder_seek_absolute(Decoder.get(), sample))
       {
         throw Error(THIS_LINE, "Failed to seek");
@@ -316,20 +306,16 @@ namespace Flac
     Binary::DataInputStream Stream;
     Sound::Chunk Chunk;
   };
-  
+
   class Renderer : public Module::Renderer
   {
   public:
-    Renderer(Model::Ptr data, StateIterator::Ptr iterator, Sound::Receiver::Ptr target, Parameters::Accessor::Ptr params)
-      : Tune(std::move(data))
-      , Iterator(std::move(iterator))
-      , State(Iterator->GetStateObserver())
+    Renderer(Model::Ptr data, Sound::Converter::Ptr target)
+      : Tune(data)
+      , State(MakePtr<SampledState>(data->TotalSamples, data->Frequency))
       , Analyzer(Module::CreateSoundAnalyzer())
-      , SoundParams(Sound::RenderParameters::Create(std::move(params)))
       , Target(std::move(target))
-      , Looped()
     {
-      ApplyParameters();
     }
 
     Module::State::Ptr GetState() const override
@@ -342,59 +328,40 @@ namespace Flac
       return Analyzer;
     }
 
-    bool RenderFrame() override
+    Sound::Chunk Render(const Sound::LoopParameters& looped) override
     {
-      try
+      if (!State->IsValid())
       {
-        ApplyParameters();
-
-        auto frame = Tune.RenderFrame();
-        Analyzer->AddSoundData(frame);
-        Resampler->ApplyData(std::move(frame));
-        Iterator->NextFrame(Looped);
-        if (0 == State->Frame())
-        {
-          Tune.Seek(0);
-        }
-        return Iterator->IsValid();
+        return {};
       }
-      catch (const std::exception&)
+      const auto loops = State->LoopCount();
+      auto frame = Tune.RenderFrame();
+      State->Consume(frame.size(), looped);
+      frame = Target->Apply(std::move(frame));
+      Analyzer->AddSoundData(frame);
+      if (State->LoopCount() != loops)
       {
-        return false;
+        Tune.Seek(0);
       }
+      return frame;
     }
 
     void Reset() override
     {
       Tune.Reset();
-      SoundParams.Reset();
-      Iterator->Reset();
-      Looped = {};
+      State->Reset();
     }
 
-    void SetPosition(uint_t frame) override
+    void SetPosition(Time::AtMillisecond request) override
     {
-      Tune.Seek(frame);
-      Module::SeekIterator(*Iterator, frame);
-    }
-  private:
-    void ApplyParameters()
-    {
-      if (SoundParams.IsChanged())
-      {
-        Looped = SoundParams->Looped();
-        Resampler = Sound::CreateResampler(Tune.GetFrequency(), SoundParams->SoundFreq(), Target);
-      }
+      State->Seek(request);
+      Tune.Seek(State->AtSample());
     }
   private:
     FlacTune Tune;
-    const StateIterator::Ptr Iterator;
-    const Module::State::Ptr State;
+    const SampledState::Ptr State;
     const Module::SoundAnalyzer::Ptr Analyzer;
-    Parameters::TrackingHelper<Sound::RenderParameters> SoundParams;
-    const Sound::Receiver::Ptr Target;
-    Sound::Receiver::Ptr Resampler;
-    Sound::LoopParameters Looped;
+    const Sound::Converter::Ptr Target;
   };
   
   class Holder : public Module::Holder
@@ -402,14 +369,13 @@ namespace Flac
   public:
     Holder(Model::Ptr data, Parameters::Accessor::Ptr props)
       : Data(std::move(data))
-      , Info(CreateStreamInfo(Data->FramesCount))
       , Properties(std::move(props))
     {
     }
 
     Module::Information::Ptr GetModuleInformation() const override
     {
-      return Info;
+      return CreateSampledInfo(Data->Frequency, Data->TotalSamples);
     }
 
     Parameters::Accessor::Ptr GetModuleProperties() const override
@@ -417,13 +383,12 @@ namespace Flac
       return Properties;
     }
 
-    Renderer::Ptr CreateRenderer(Parameters::Accessor::Ptr params, Sound::Receiver::Ptr target) const override
+    Renderer::Ptr CreateRenderer(uint_t samplerate, Parameters::Accessor::Ptr /*params*/) const override
     {
-      return MakePtr<Renderer>(Data, Module::CreateStreamStateIterator(Info), target, params);
+      return MakePtr<Renderer>(Data, Sound::CreateResampler(Data->Frequency, samplerate));
     }
   private:
     const Model::Ptr Data;
-    const Information::Ptr Info;
     const Parameters::Accessor::Ptr Properties;
   };
   
@@ -464,22 +429,17 @@ namespace Flac
       Data->Content = std::move(data);
     }
 
-    void AddFrame(std::size_t /*offset*/) override
-    {
-      ++Data->FramesCount;
-    }
+    void AddFrame(std::size_t /*offset*/) override {}
     
     Model::Ptr GetResult()
     {
-      if (Data->TotalSamples && Data->FramesCount)
+      if (Data->TotalSamples)
       {
-        Data->SamplesPerFrame = Data->TotalSamples / Data->FramesCount;
-        Properties.SetFramesParameters(Data->SamplesPerFrame, Data->Frequency); 
         return Data;
       }
       else
       {
-        return Model::Ptr();
+        return {};
       }
     }
   private:
@@ -491,7 +451,7 @@ namespace Flac
   class Factory : public Module::Factory
   {
   public:
-    Module::Holder::Ptr CreateModule(const Parameters::Accessor& params, const Binary::Container& rawData, Parameters::Container::Ptr properties) const override
+    Module::Holder::Ptr CreateModule(const Parameters::Accessor& /*params*/, const Binary::Container& rawData, Parameters::Container::Ptr properties) const override
     {
       try
       {
@@ -499,11 +459,11 @@ namespace Flac
         DataBuilder dataBuilder(props);
         if (const auto container = Formats::Chiptune::Flac::Parse(rawData, dataBuilder))
         {
-          if (const auto data = dataBuilder.GetResult())
+          if (auto data = dataBuilder.GetResult())
           {
             props.SetSource(*container);
             dataBuilder.SetContent(container);
-            return MakePtr<Holder>(data, properties);
+            return MakePtr<Holder>(std::move(data), std::move(properties));
           }
         }
       }
@@ -511,7 +471,7 @@ namespace Flac
       {
         Dbg("Failed to create FLAC: %s", e.what());
       }
-      return Module::Holder::Ptr();
+      return {};
     }
   };
 }

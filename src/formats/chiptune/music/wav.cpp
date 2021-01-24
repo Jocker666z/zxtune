@@ -341,7 +341,7 @@ namespace Chiptune
       return MakePtr<SimpleDumpBuilder>();
     }
     
-    const std::string FORMAT =
+    const StringView FORMAT =
       "'R'I'F'F"
       "????"
       "'W'A'V'E"
@@ -373,7 +373,7 @@ namespace Chiptune
         return Format;
       }
 
-      bool Check(const Binary::Container& rawData) const override
+      bool Check(Binary::View rawData) const override
       {
         return Format->Match(rawData);
       }

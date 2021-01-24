@@ -1015,7 +1015,7 @@ namespace Chiptune
     }
 
     //Statistic-based format description (~55 modules)
-    const std::string FORMAT(
+    const StringView FORMAT(
       "(08-88)&%x0xxxxxx 00"  //uint16_t PositionsOffset;
       //0x9d + 2 * MAX_POSITIONS_COUNT(0x64) = 0x165
       "? 00-01"   //uint16_t SamplesOffset;
@@ -1043,7 +1043,7 @@ namespace Chiptune
         return Format;
       }
 
-      bool Check(const Binary::Container& rawData) const override
+      bool Check(Binary::View rawData) const override
       {
         const auto data = MakeContainer(rawData);
         return Format->Match(data) && FastCheck(data);

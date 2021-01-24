@@ -17,7 +17,10 @@
 
 #include "hvl_replay.h"
 #include "hvl_tables.h"
+#include "hvl_tables.c"
 
+static int8 waves[WAVES_SIZE];
+static uint32 panning_left[256], panning_right[256];
 
 /*
 ** Waves

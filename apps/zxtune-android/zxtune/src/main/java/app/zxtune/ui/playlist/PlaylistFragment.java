@@ -26,7 +26,6 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.Observer;
-import androidx.lifecycle.ViewModelProviders;
 import androidx.recyclerview.selection.ItemDetailsLookup;
 import androidx.recyclerview.selection.OnItemActivatedListener;
 import androidx.recyclerview.selection.Selection;
@@ -94,12 +93,9 @@ public class PlaylistFragment extends Fragment {
           final MenuItem item = sortMenuRoot.add(getMenuTitle(sortBy));
           final ProviderClient.SortBy by = sortBy;
           final ProviderClient.SortOrder order = sortOrder;
-          item.setOnMenuItemClickListener(new MenuItem.OnMenuItemClickListener() {
-            @Override
-            public boolean onMenuItemClick(MenuItem item) {
-              ctrl.sort(by, order);
-              return true;
-            }
+          item.setOnMenuItemClickListener(item1 -> {
+            ctrl.sort(by, order);
+            return true;
           });
           item.setIcon(getMenuIcon(sortOrder));
         } catch (Exception e) {
@@ -158,9 +154,9 @@ public class PlaylistFragment extends Fragment {
         new ViewAdapter.KeyProvider(adapter),
         new ViewAdapter.DetailsLookup(listing),
         StorageStrategy.createLongStorage())
-                           .withSelectionPredicate(SelectionPredicates.<Long>createSelectAnything())
-                           .withOnItemActivatedListener(new ItemActivatedListener())
-                           .build();
+        .withSelectionPredicate(SelectionPredicates.<Long>createSelectAnything())
+        .withOnItemActivatedListener(new ItemActivatedListener())
+        .build();
     adapter.setSelection(selectionTracker.getSelection());
 
     SelectionUtils.install((AppCompatActivity) getActivity(), selectionTracker,
@@ -177,37 +173,28 @@ public class PlaylistFragment extends Fragment {
     stub = view.findViewById(R.id.playlist_stub);
 
     final Model playlistModel = Model.of(this);
-    playlistModel.getItems().observe(this, new Observer<List<Entry>>() {
-      @Override
-      public void onChanged(List<Entry> entries) {
-        if (touchHelperCallback.isDragging()) {
-          return;
-        }
-        adapter.submitList(entries);
-        if (entries.isEmpty()) {
-          listing.setVisibility(View.GONE);
-          stub.setVisibility(View.VISIBLE);
-        } else {
-          listing.setVisibility(View.VISIBLE);
-          stub.setVisibility(View.GONE);
-        }
+    playlistModel.getItems().observe(this, entries -> {
+      if (touchHelperCallback.isDragging()) {
+        return;
+      }
+      adapter.submitList(entries);
+      if (entries.isEmpty()) {
+        listing.setVisibility(View.GONE);
+        stub.setVisibility(View.VISIBLE);
+      } else {
+        listing.setVisibility(View.VISIBLE);
+        stub.setVisibility(View.GONE);
       }
     });
-    final MediaSessionModel model = ViewModelProviders.of(getActivity()).get(MediaSessionModel.class);
-    model.getState().observe(this, new Observer<PlaybackStateCompat>() {
-      @Override
-      public void onChanged(@Nullable PlaybackStateCompat state) {
-        final boolean isPlaying = state != null && state.getState() == PlaybackStateCompat.STATE_PLAYING;
-        adapter.setIsPlaying(isPlaying);
-      }
+    final MediaSessionModel model = MediaSessionModel.of(getActivity());
+    model.getState().observe(this, state -> {
+      final boolean isPlaying = state != null && state.getState() == PlaybackStateCompat.STATE_PLAYING;
+      adapter.setIsPlaying(isPlaying);
     });
-    model.getMetadata().observe(this, new Observer<MediaMetadataCompat>() {
-      @Override
-      public void onChanged(@Nullable MediaMetadataCompat metadata) {
-        if (metadata != null) {
-          final Uri uri = Uri.parse(metadata.getDescription().getMediaId());
-          adapter.setNowPlaying(ProviderClient.findId(uri));
-        }
+    model.getMetadata().observe(this, metadata -> {
+      if (metadata != null) {
+        final Uri uri = Uri.parse(metadata.getDescription().getMediaId());
+        adapter.setNowPlaying(ProviderClient.findId(uri));
       }
     });
   }
@@ -241,7 +228,7 @@ public class PlaylistFragment extends Fragment {
   }
 
   private boolean onItemClick(@Nullable Long id) {
-    final MediaSessionModel model = ViewModelProviders.of(getActivity()).get(MediaSessionModel.class);
+    final MediaSessionModel model = MediaSessionModel.of(getActivity());
     final MediaControllerCompat ctrl = model.getMediaController().getValue();
     if (ctrl != null && id != null) {
       final Uri toPlay = ProviderClient.createUri(id);

@@ -71,7 +71,7 @@ namespace Chiptune
       return 0 == std::memcmp(rawData.Start(), SIGNATURE.data(), SIGNATURE.size());
     }
 
-    const std::string FORMAT(
+    const StringView FORMAT(
       "'T'F'M'D"
     );
 
@@ -93,7 +93,7 @@ namespace Chiptune
         return Format;
       }
 
-      bool Check(const Binary::Container& rawData) const override
+      bool Check(Binary::View rawData) const override
       {
         return FastCheck(rawData);
       }

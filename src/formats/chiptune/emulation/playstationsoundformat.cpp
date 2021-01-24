@@ -168,7 +168,7 @@ namespace Chiptune
       Format(data).Parse(target);
     }
 
-    const std::string FORMAT(
+    const StringView FORMAT(
       "'P'S'F"
       "01"
     );
@@ -191,7 +191,7 @@ namespace Chiptune
         return Format;
       }
 
-      bool Check(const Binary::Container& rawData) const override
+      bool Check(Binary::View rawData) const override
       {
         return Format->Match(rawData);
       }

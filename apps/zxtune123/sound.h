@@ -38,10 +38,9 @@ public:
   // functional part
   virtual Sound::Backend::Ptr CreateBackend(Module::Holder::Ptr module, const String& typeHint = String(), Sound::BackendCallback::Ptr callback = Sound::BackendCallback::Ptr()) = 0;
 
-  //parameters
-  virtual Time::Microseconds GetFrameDuration() const = 0;
-
   virtual Sound::BackendInformation::Iterator::Ptr EnumerateBackends() const = 0;
+
+  virtual uint_t GetSamplerate() const = 0;
 
   static std::unique_ptr<SoundComponent> Create(Parameters::Container::Ptr configParams);
 };

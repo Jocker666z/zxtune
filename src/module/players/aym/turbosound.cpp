@@ -9,6 +9,7 @@
 **/
 
 //local includes
+#include "module/players/streaming.h"
 #include "module/players/aym/turbosound.h"
 //common includes
 #include <error.h>
@@ -18,8 +19,8 @@
 #include <module/attributes.h>
 #include <module/players/analyzer.h>
 #include <parameters/merged_accessor.h>
-#include <parameters/tracking_helper.h>
 #include <parameters/visitor.h>
+#include <sound/loop.h>
 #include <sound/mixer_factory.h>
 //std includes
 #include <map>
@@ -143,84 +144,6 @@ namespace TurboSound
   };
 
   template<class Base>
-  class MergedInformationBase : public Base
-  {
-  public:
-    MergedInformationBase(const Information& lh, const Information& rh)
-      : Frames(lh.FramesCount())
-      , Loop(lh.LoopFrame())
-      , Channels(lh.ChannelsCount() + rh.ChannelsCount())
-    {
-    }
-
-    uint_t FramesCount() const override
-    {
-      return Frames;
-    }
-
-    uint_t LoopFrame() const override
-    {
-      return Loop;
-    }
-
-    uint_t ChannelsCount() const override
-    {
-      return Channels;
-    }
-  private:
-    const uint_t Frames;
-    const uint_t Loop;
-    const uint_t Channels;
-  };
-
-  using MergedInformation = MergedInformationBase<Information>;
-
-  class MergedTrackInformation : public MergedInformationBase<TrackInformation>
-  {
-  public:
-    MergedTrackInformation(const TrackInformation& lh, const TrackInformation& rh)
-      : MergedInformationBase(lh, rh)
-      , Positions(lh.PositionsCount())
-      , LoopPos(lh.LoopPosition())
-      , TempoValue(std::min(lh.Tempo(), rh.Tempo()))
-    {
-    }
-
-    uint_t PositionsCount() const override
-    {
-      return Positions;
-    }
-
-    uint_t LoopPosition() const override
-    {
-      return LoopPos;
-    }
-
-    uint_t Tempo() const override
-    {
-      return TempoValue;
-    }
-  private:
-    const uint_t Positions;
-    const uint_t LoopPos;
-    const uint_t TempoValue;
-  };
-
-  Information::Ptr CreateInformation(Information::Ptr lh, Information::Ptr rh)
-  {
-    const auto lhTrack = std::dynamic_pointer_cast<const TrackInformation>(lh);
-    const auto rhTrack = std::dynamic_pointer_cast<const TrackInformation>(rh);
-    if (lhTrack && rhTrack)
-    {
-      return MakePtr<MergedTrackInformation>(*lhTrack, *rhTrack);
-    }
-    else
-    {
-      return MakePtr<MergedInformation>(*lh, *rh);
-    }
-  }
-
-  template<class Base>
   class MergedStateBase : public Base
   {
   public:
@@ -229,9 +152,14 @@ namespace TurboSound
     {
     }
 
-    uint_t Frame() const override
+    Time::AtMillisecond At() const override
     {
-      return First->Frame();
+      return First->At();
+    }
+
+    Time::Milliseconds Total() const override
+    {
+      return First->Total();
     }
 
     uint_t LoopCount() const override
@@ -345,18 +273,11 @@ namespace TurboSound
   class Renderer : public Module::Renderer
   {
   public:
-    Renderer(Sound::RenderParameters::Ptr params, DataIterator::Ptr iterator, Devices::TurboSound::Device::Ptr device)
-      : Params(params)
-      , Iterator(std::move(iterator))
+    Renderer(Time::Microseconds frameDuration, DataIterator::Ptr iterator, Devices::TurboSound::Chip::Ptr device)
+      : Iterator(std::move(iterator))
       , Device(std::move(device))
-      , FrameDuration()
-      , Looped()
+      , FrameDuration(frameDuration)
     {
-#ifndef NDEBUG
-//perform self-test
-      for (; Iterator->IsValid(); Iterator->NextFrame({}));
-      Iterator->Reset();
-#endif
     }
 
     State::Ptr GetState() const override
@@ -366,82 +287,54 @@ namespace TurboSound
 
     Analyzer::Ptr GetAnalyzer() const override
     {
-      return TurboSound::CreateAnalyzer(Device);
+      return Module::CreateAnalyzer(Device);
     }
 
-    bool RenderFrame() override
+    Sound::Chunk Render(const Sound::LoopParameters& looped) override
     {
-      try
+      if (!Iterator->IsValid())
       {
-        if (Iterator->IsValid())
-        {
-          SynchronizeParameters();
-          if (LastChunk.TimeStamp == Devices::TurboSound::Stamp())
-          {
-            //first chunk
-            TransferChunk();
-          }
-          Iterator->NextFrame(Looped);
-          LastChunk.TimeStamp += FrameDuration;
-          TransferChunk();
-        }
-        return Iterator->IsValid();
+        return {};
       }
-      catch (const std::exception&)
-      {
-        return false;
-      }
+      TransferChunk();
+      Iterator->NextFrame(looped);
+      LastChunk.TimeStamp += FrameDuration;
+      return Device->RenderTill(LastChunk.TimeStamp);
     }
 
     void Reset() override
     {
-      Params.Reset();
       Iterator->Reset();
       Device->Reset();
       LastChunk.TimeStamp = {};
-      FrameDuration = {};
-      Looped = {};
     }
 
-    void SetPosition(uint_t frameNum) override
+    void SetPosition(Time::AtMillisecond request) override
     {
-      uint_t curFrame = GetState()->Frame();
-      if (curFrame > frameNum)
+      const auto state = GetState();
+      if (request < state->At())
       {
         Iterator->Reset();
         Device->Reset();
         LastChunk.TimeStamp = {};
-        curFrame = 0;
       }
-      while (curFrame < frameNum && Iterator->IsValid())
+      while (state->At() < request && Iterator->IsValid())
       {
         TransferChunk();
         Iterator->NextFrame({});
-        ++curFrame;
       }
     }
   private:
-    void SynchronizeParameters()
-    {
-      if (Params.IsChanged())
-      {
-        FrameDuration = Params->FrameDuration();
-        Looped = Params->Looped();
-      }
-    }
-
     void TransferChunk()
     {
       LastChunk.Data = Iterator->GetData();
       Device->RenderData(LastChunk);
     }
   private:
-    Parameters::TrackingHelper<Sound::RenderParameters> Params;
     const TurboSound::DataIterator::Ptr Iterator;
-    const Devices::TurboSound::Device::Ptr Device;
+    const Devices::TurboSound::Chip::Ptr Device;
+    const Time::Duration<Devices::TurboSound::TimeUnit> FrameDuration;
     Devices::TurboSound::DataChunk LastChunk;
-    Time::Duration<Devices::TurboSound::TimeUnit> FrameDuration;
-    Sound::LoopParameters Looped;
   };
 
   class MergedChiptune : public Chiptune
@@ -454,9 +347,19 @@ namespace TurboSound
     {
     }
 
-    Information::Ptr GetInformation() const override
+    Time::Microseconds GetFrameDuration() const override
     {
-      return CreateInformation(First->GetInformation(), Second->GetInformation());
+      return First->GetFrameDuration();
+    }
+
+    TrackModel::Ptr FindTrackModel() const override
+    {
+      return First->FindTrackModel();
+    }
+    
+    Module::StreamModel::Ptr FindStreamModel() const override
+    {
+      return First->FindStreamModel();
     }
 
     Parameters::Accessor::Ptr GetProperties() const override
@@ -478,26 +381,33 @@ namespace TurboSound
     const AYM::Chiptune::Ptr Second;
   };
 
-  Devices::TurboSound::Chip::Ptr CreateChip(Parameters::Accessor::Ptr params, Sound::Receiver::Ptr target)
+  Devices::TurboSound::Chip::Ptr CreateChip(uint_t samplerate, Parameters::Accessor::Ptr params)
   {
     typedef Sound::ThreeChannelsMatrixMixer MixerType;
     auto mixer = MixerType::Create();
     auto pollParams = Sound::CreateMixerNotificationParameters(std::move(params), mixer);
-    auto chipParams = AYM::CreateChipParameters(std::move(pollParams));
-    return Devices::TurboSound::CreateChip(std::move(chipParams), std::move(mixer), std::move(target));
+    auto chipParams = AYM::CreateChipParameters(samplerate, std::move(pollParams));
+    return Devices::TurboSound::CreateChip(std::move(chipParams), std::move(mixer));
   }
 
   class Holder : public Module::Holder
   {
   public:
-    explicit Holder(Chiptune::Ptr chiptune)
+    Holder(Chiptune::Ptr chiptune)
       : Tune(std::move(chiptune))
     {
     }
 
     Information::Ptr GetModuleInformation() const override
     {
-      return Tune->GetInformation();
+      if (auto track = Tune->FindTrackModel())
+      {
+        return CreateTrackInfoFixedChannels(Tune->GetFrameDuration(), std::move(track), TRACK_CHANNELS);
+      }
+      else
+      {
+        return CreateStreamInfo(Tune->GetFrameDuration(), Tune->FindStreamModel());
+      }
     }
 
     Parameters::Accessor::Ptr GetModuleProperties() const override
@@ -505,32 +415,25 @@ namespace TurboSound
       return Tune->GetProperties();
     }
 
-    Renderer::Ptr CreateRenderer(Parameters::Accessor::Ptr params, Sound::Receiver::Ptr target) const override
+    Renderer::Ptr CreateRenderer(uint_t samplerate, Parameters::Accessor::Ptr params) const override
     {
-      auto sndParams = Sound::RenderParameters::Create(params);
       auto iterator = Tune->CreateDataIterator(AYM::TrackParameters::Create(params, 0), AYM::TrackParameters::Create(params, 1));
-      auto chip = CreateChip(std::move(params), std::move(target));
-      return MakePtr<Renderer>(std::move(sndParams), std::move(iterator), std::move(chip));
+      auto chip = CreateChip(samplerate, std::move(params));
+      return MakePtr<Renderer>(Tune->GetFrameDuration()/*TODO: speed variation*/,
+        std::move(iterator), std::move(chip));
     }
   private:
     const Chiptune::Ptr Tune;
   };
 
-  Analyzer::Ptr CreateAnalyzer(Devices::TurboSound::Device::Ptr device)
-  {
-    if (auto src = std::dynamic_pointer_cast<Devices::StateSource>(device))
-    {
-      return Module::CreateAnalyzer(std::move(src));
-    }
-    return Analyzer::Ptr();
-  }
-
   Chiptune::Ptr CreateChiptune(Parameters::Accessor::Ptr params, AYM::Chiptune::Ptr first, AYM::Chiptune::Ptr second)
   {
+    /* TODO: think about it
     if (first->GetInformation()->FramesCount() < second->GetInformation()->FramesCount())
     {
       std::swap(first, second);
     }
+    */
     return MakePtr<MergedChiptune>(std::move(params), std::move(first), std::move(second));
   }
 

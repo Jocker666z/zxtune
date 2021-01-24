@@ -18,8 +18,9 @@
 //library includes
 #include <async/worker.h>
 #include <debug/log.h>
+#include <module/players/pipeline.h>
+#include <parameters/tracking_helper.h>
 #include <sound/render_params.h>
-#include <sound/silence.h>
 #include <sound/sound_parameters.h>
 //std includes
 #include <atomic>
@@ -31,26 +32,6 @@ namespace Sound
 namespace BackendBase
 {
   const Debug::Stream Dbg("Sound::Backend::Base");
-
-  class BufferRenderer : public Receiver
-  {
-  public:
-    explicit BufferRenderer(BackendWorker& worker)
-      : Worker(worker)
-    {
-    }
-
-    void ApplyData(Chunk chunk) override
-    {
-      Worker.FrameFinish(std::move(chunk));
-    }
-
-    void Flush() override
-    {
-    }
-  private:
-    BackendWorker& Worker;
-  };
 
   class CallbackOverWorker : public BackendCallback
   {
@@ -121,15 +102,15 @@ namespace BackendBase
       return Delegate->GetAnalyzer();
     }
 
-    bool RenderFrame() override
+    Sound::Chunk Render(const Sound::LoopParameters& looped) override
     {
-      const uint_t request = SeekRequest.exchange(NO_SEEK);
+      const auto request = SeekRequest.exchange(NO_SEEK);
       if (request != NO_SEEK)
       {
-        Delegate->SetPosition(request);
+        Delegate->SetPosition(Time::AtMillisecond(request));
       }
       Callback->OnFrame(*State);
-      return Delegate->RenderFrame();
+      return Delegate->Render(looped);
     }
 
     void Reset() override
@@ -138,9 +119,9 @@ namespace BackendBase
       Delegate->Reset();
     }
 
-    void SetPosition(uint_t frame) override
+    void SetPosition(Time::AtMillisecond request) override
     {
-      SeekRequest = frame;
+      SeekRequest = request.Get();
     }
   private:
     static const uint_t NO_SEEK = ~uint_t(0);
@@ -150,12 +131,35 @@ namespace BackendBase
     std::atomic<uint_t> SeekRequest;
   };
 
+  class LoopParameterAdapter
+  {
+  public:
+    explicit LoopParameterAdapter(Parameters::Accessor::Ptr params)
+      : Delegate(std::move(params))
+    {
+    }
+
+    const LoopParameters& operator * () const
+    {
+      if (Delegate.IsChanged())
+      {
+        Value = GetLoopParameters(*Delegate);
+      }
+      return Value;
+    }
+  private:
+    mutable Parameters::TrackingHelper<Parameters::Accessor> Delegate;
+    mutable LoopParameters Value;
+  };
+
   class AsyncWrapper : public Async::Worker
   {
   public:
-    AsyncWrapper(BackendCallback::Ptr callback, Module::Renderer::Ptr render)
-      : Callback(std::move(callback))
-      , Render(std::move(render))
+    AsyncWrapper(Parameters::Accessor::Ptr params, BackendCallback::Ptr callback, Module::Renderer::Ptr render, BackendWorker::Ptr worker)
+      : Looped(std::move(params))
+      , Callback(std::move(callback))
+      , Renderer(std::move(render))
+      , Worker(std::move(worker))
       , Playing(false)
     {
     }
@@ -244,12 +248,36 @@ namespace BackendBase
   private:
     void RenderFrame()
     {
-      Playing = Render->RenderFrame();
+      try
+      {
+        auto data = Renderer->Render(*Looped);
+        if (!data.empty())
+        {
+          Playing = true;
+          Worker->FrameFinish(std::move(data));
+        }
+        else
+        {
+          Playing = false;
+        }
+      }
+      catch (const std::exception& e)
+      {
+        Playing = false;
+        throw Error(THIS_LINE, e.what());
+      }
+      catch (const Error& e)
+      {
+        Playing = false;
+        throw;
+      }
     }
   private:
+    const LoopParameterAdapter Looped;
     const BackendWorker::Ptr Delegate;
     const BackendCallback::Ptr Callback;
-    const Module::Renderer::Ptr Render;
+    const Module::Renderer::Ptr Renderer;
+    const BackendWorker::Ptr Worker;
     std::atomic<bool> Playing;
   };
 
@@ -319,11 +347,11 @@ namespace BackendBase
       }
     }
 
-    void SetPosition(uint_t frame) override
+    void SetPosition(Time::AtMillisecond request) override
     {
       try
       {
-        Renderer->SetPosition(frame);
+        Renderer->SetPosition(request);
       }
       catch (const Error& e)
       {
@@ -381,16 +409,14 @@ namespace BackendBase
 
 namespace Sound
 {
-  Backend::Ptr CreateBackend(Parameters::Accessor::Ptr params, Module::Holder::Ptr holder, BackendCallback::Ptr origCallback, BackendWorker::Ptr worker)
+  Backend::Ptr CreateBackend(Parameters::Accessor::Ptr globalParams, Module::Holder::Ptr holder, BackendCallback::Ptr origCallback, BackendWorker::Ptr worker)
   {
-    const Receiver::Ptr target = MakePtr<BackendBase::BufferRenderer>(*worker);
-    const auto pipeline = CreateSilenceDetector(params, target);
-    const Module::Renderer::Ptr origRenderer = holder->CreateRenderer(params, pipeline);
-    const BackendCallback::Ptr callback = BackendBase::CreateCallback(origCallback, worker);
-    const Module::Renderer::Ptr renderer = MakePtr<BackendBase::RendererWrapper>(origRenderer, callback);
-    const Async::Worker::Ptr asyncWorker = MakePtr<BackendBase::AsyncWrapper>(callback, renderer);
-    const Async::Job::Ptr job = Async::CreateJob(asyncWorker);
-    return MakePtr<BackendBase::BackendInternal>(worker, renderer, job);
+    auto origRenderer = Module::CreatePipelinedRenderer(*holder, globalParams);
+    auto callback = BackendBase::CreateCallback(std::move(origCallback), worker);
+    auto renderer = MakePtr<BackendBase::RendererWrapper>(std::move(origRenderer), callback);
+    auto asyncWorker = MakePtr<BackendBase::AsyncWrapper>(std::move(globalParams), std::move(callback), renderer, worker);
+    auto job = Async::CreateJob(std::move(asyncWorker));
+    return MakePtr<BackendBase::BackendInternal>(std::move(worker), std::move(renderer), std::move(job));
   }
 }
 

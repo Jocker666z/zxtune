@@ -114,12 +114,7 @@ public class ScanService extends IntentService {
   }
 
   private void makeToast(final String text, final int duration) {
-    handler.post(new Runnable() {
-      @Override
-      public void run() {
-        Toast.makeText(ScanService.this, text, duration).show();
-      }
-    });
+    handler.post(() -> Toast.makeText(ScanService.this, text, duration).show());
   }
 
   @Override
@@ -152,6 +147,7 @@ public class ScanService extends IntentService {
         public void onModule(Identifier id, Module module) {
           signal.throwIfCanceled();
           client.addItem(new Item(id, module));
+          module.release();
           addedItems.incrementAndGet();
           error = null;
         }

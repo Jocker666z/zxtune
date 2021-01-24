@@ -1,16 +1,17 @@
 package app.zxtune.core;
 
 import app.zxtune.Releaseable;
+import app.zxtune.TimeStamp;
 
 /**
  * Player interface
  */
-public interface Player extends PropertiesAccessor, PropertiesModifier, Releaseable {
+public interface Player extends PropertiesModifier, Releaseable {
 
   /**
-   * @return Index of next rendered frame
+   * @return Position
    */
-  int getPosition();
+  TimeStamp getPosition();
 
   /**
    * @param levels Array of levels to store
@@ -27,9 +28,9 @@ public interface Player extends PropertiesAccessor, PropertiesModifier, Releasea
   boolean render(short[] result);
 
   /**
-   * @param pos Index of next rendered frame
+   * @param pos Position
    */
-  void setPosition(int pos);
+  void setPosition(TimeStamp pos);
 
   /**
    * @return Rendering performance in percents

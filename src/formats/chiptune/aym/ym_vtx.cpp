@@ -379,7 +379,7 @@ namespace Chiptune
       return {};
     }
 
-    const std::string FORMAT(
+    const StringView FORMAT(
       "'Y'M"
       "'2-'6"
       "'!|'b"
@@ -408,7 +408,7 @@ namespace Chiptune
       return {};
     }
 
-    const std::string PACKED_FORMAT(
+    const StringView PACKED_FORMAT(
       "16-ff"      //header size
       "?"          //header sum
       "'-'l'h'5'-" //method
@@ -438,7 +438,7 @@ namespace Chiptune
         return Format;
       }
 
-      bool Check(const Binary::Container& rawData) const override
+      bool Check(Binary::View rawData) const override
       {
         return Format->Match(rawData);
       }
@@ -479,7 +479,7 @@ namespace Chiptune
         return Format;
       }
 
-      bool Check(const Binary::Container& rawData) const override
+      bool Check(Binary::View rawData) const override
       {
         return Format->Match(rawData);
       }
@@ -653,7 +653,7 @@ namespace Chiptune
       return {};
     }
 
-    const std::string FORMAT(
+    const StringView FORMAT(
       "('a|'A|'y|'Y)('y|'Y|'m|'M)" //type
       "00-06"          //layout
       "??"             //loop
@@ -679,9 +679,9 @@ namespace Chiptune
         return Format;
       }
 
-      bool Check(const Binary::Container& rawData) const override
+      bool Check(Binary::View rawData) const override
       {
-        return FastCheck(Binary::View(rawData));
+        return FastCheck(rawData);
       }
 
       Formats::Chiptune::Container::Ptr Decode(const Binary::Container& rawData) const override

@@ -448,7 +448,7 @@ namespace Chiptune
       return rawData.Size() >= MODULE_SIZE;
     }
 
-    const std::string FORMAT(
+    const StringView FORMAT(
       "00-63"     //loop
       "00-1f{99}" //positions
       "02-0f"     //tempo
@@ -485,9 +485,8 @@ namespace Chiptune
         return Format;
       }
 
-      bool Check(const Binary::Container& rawData) const override
+      bool Check(Binary::View data) const override
       {
-        const Binary::View data(rawData);
         return FastCheck(data) && Format->Match(data);
       }
 

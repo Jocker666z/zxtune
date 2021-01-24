@@ -6,14 +6,9 @@
 
 package app.zxtune.ui;
 
-import androidx.lifecycle.Observer;
-import androidx.lifecycle.ViewModelProviders;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.SystemClock;
-
-import androidx.annotation.Nullable;
-import androidx.fragment.app.Fragment;
 import android.support.v4.media.MediaMetadataCompat;
 import android.support.v4.media.session.MediaControllerCompat;
 import android.support.v4.media.session.PlaybackStateCompat;
@@ -23,14 +18,19 @@ import android.view.ViewGroup;
 import android.widget.ImageView;
 import android.widget.SeekBar;
 import android.widget.TextView;
+
+import androidx.annotation.Nullable;
+import androidx.fragment.app.Fragment;
+import androidx.lifecycle.Observer;
+
+import java.util.concurrent.TimeUnit;
+
 import app.zxtune.Log;
 import app.zxtune.R;
 import app.zxtune.TimeStamp;
 import app.zxtune.models.MediaSessionModel;
 import app.zxtune.playback.PlaybackControl;
 import app.zxtune.ui.utils.UiUtils;
-
-import java.util.concurrent.TimeUnit;
 
 public class SeekControlFragment extends Fragment {
 
@@ -60,41 +60,32 @@ public class SeekControlFragment extends Fragment {
   public void onCreate(@Nullable Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
 
-    final MediaSessionModel model = ViewModelProviders.of(getActivity()).get(MediaSessionModel.class);
-    model.getMediaController().observe(this, new Observer<MediaControllerCompat>() {
-      @Override
-      public void onChanged(@Nullable MediaControllerCompat controller) {
-        if (controller != null) {
-          ctrl = controller.getTransportControls();
-          trackModeValue = controller.getRepeatMode();
-          updateTrackModeStatus();
-        } else {
-          ctrl = null;
-        }
-        UiUtils.setViewEnabled(getView(), controller != null);
+    final MediaSessionModel model = MediaSessionModel.of(getActivity());
+    model.getMediaController().observe(this, controller -> {
+      if (controller != null) {
+        ctrl = controller.getTransportControls();
+        trackModeValue = controller.getRepeatMode();
+        updateTrackModeStatus();
+      } else {
+        ctrl = null;
+      }
+      UiUtils.setViewEnabled(getView(), controller != null);
+    });
+    model.getMetadata().observe(this, mediaMetadataCompat -> {
+      if (mediaMetadataCompat != null) {
+        setDuration(mediaMetadataCompat.getLong(MediaMetadataCompat.METADATA_KEY_DURATION));
+      } else {
+        setUnknownDuration();
       }
     });
-    model.getMetadata().observe(this, new Observer<MediaMetadataCompat>() {
-      @Override
-      public void onChanged(@Nullable MediaMetadataCompat mediaMetadataCompat) {
-        if (mediaMetadataCompat != null) {
-          setDuration(mediaMetadataCompat.getLong(MediaMetadataCompat.METADATA_KEY_DURATION));
-        } else {
-          setUnknownDuration();
-        }
-      }
-    });
-    model.getState().observe(this, new Observer<PlaybackStateCompat>() {
-      @Override
-      public void onChanged(@Nullable PlaybackStateCompat state) {
-        if (state != null && state.getState() == PlaybackStateCompat.STATE_PLAYING) {
-          final long pos = state.getPosition();
-          final float speed = state.getPlaybackSpeed();
-          final long ts = state.getLastPositionUpdateTime();
-          updateTask.start(pos, speed, ts);
-        } else {
-          updateTask.stop();
-        }
+    model.getState().observe(this, state -> {
+      if (state != null && state.getState() == PlaybackStateCompat.STATE_PLAYING) {
+        final long pos = state.getPosition();
+        final float speed = state.getPlaybackSpeed();
+        final long ts = state.getLastPositionUpdateTime();
+        updateTask.start(pos, speed, ts);
+      } else {
+        updateTask.stop();
       }
     });
   }
@@ -132,12 +123,7 @@ public class SeekControlFragment extends Fragment {
     });
     totalTime = view.findViewById(R.id.position_duration);
     trackMode = view.findViewById(R.id.controls_track_mode);
-    trackMode.setOnClickListener(new View.OnClickListener() {
-      @Override
-      public void onClick(View v) {
-        toggleTrackMode();
-      }
-    });
+    trackMode.setOnClickListener(v -> toggleTrackMode());
   }
 
   @Override

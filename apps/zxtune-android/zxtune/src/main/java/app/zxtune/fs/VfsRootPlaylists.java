@@ -10,24 +10,27 @@ import android.net.Uri;
 
 import androidx.annotation.Nullable;
 
-import java.io.IOException;
+import java.io.File;
+import java.util.List;
 
 import app.zxtune.R;
-import app.zxtune.playlist.XspfStorage;
+import app.zxtune.playlist.ProviderClient;
 
 final class VfsRootPlaylists extends StubObject implements VfsRoot {
 
-  private static final String SCHEME = "playlists";
+  static final String SCHEME = "playlists";
 
   private final Context context;
+  private final ProviderClient client;
 
   VfsRootPlaylists(Context context) {
     this.context = context;
+    this.client = new ProviderClient(context);
   }
 
   @Override
   public Uri getUri() {
-    return new Uri.Builder().scheme(SCHEME).build();
+    return rootUriBuilder().build();
   }
 
   @Override
@@ -47,32 +50,42 @@ final class VfsRootPlaylists extends StubObject implements VfsRoot {
   }
 
   @Override
-  public void enumerate(Visitor visitor) throws IOException {
-    final XspfStorage storage = new XspfStorage(context);
-    for (String name : storage.enumeratePlaylists()) {
-      visitor.onFile(new PlaylistFile(storage.getPlaylistUri(name), name));
+  public void enumerate(Visitor visitor) {
+    for (String name : client.getSavedPlaylists(null).keySet()) {
+      visitor.onFile(new PlaylistFile(name));
     }
+  }
+
+  private static Uri.Builder rootUriBuilder() {
+    return new Uri.Builder().scheme(SCHEME);
   }
 
   @Override
   @Nullable
   public VfsObject resolve(Uri uri) {
-    return SCHEME.equals(uri.getScheme()) && uri.getPathSegments().isEmpty() ? this : null;
+    if (SCHEME.equals(uri.getScheme())) {
+      final List<String> path = uri.getPathSegments();
+      if (path.isEmpty()) {
+        return this;
+      } else if (path.size() == 1) {
+        final String name = path.get(0);
+        return new PlaylistFile(name);
+      }
+    }
+    return null;
   }
 
   private class PlaylistFile extends StubObject implements VfsFile {
 
-    private final Uri uri;
     private final String name;
 
-    PlaylistFile(Uri uri, String name) {
-      this.uri = uri;
+    PlaylistFile(String name) {
       this.name = name;
     }
 
     @Override
     public Uri getUri() {
-      return uri;
+      return rootUriBuilder().appendPath(name).build();
     }
 
     @Override
@@ -88,6 +101,17 @@ final class VfsRootPlaylists extends StubObject implements VfsRoot {
     @Override
     public String getSize() {
       return getDescription();
+    }
+
+    @Override
+    @Nullable
+    public Object getExtension(String id) {
+      if (VfsExtensions.FILE.equals(id)) {
+        final String path = client.getSavedPlaylists(name).get(name);
+        return path != null ? new File(path) : null;
+      } else {
+        return super.getExtension(id);
+      }
     }
   }
 }

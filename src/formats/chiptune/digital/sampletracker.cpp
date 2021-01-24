@@ -317,7 +317,7 @@ namespace Chiptune
       ;
     }
 
-    const std::string FORMAT(
+    const StringView FORMAT(
       "01-10" //tempo
       "01-10{64}" //positions
       "?73-8b"  //first position ptr
@@ -344,7 +344,7 @@ namespace Chiptune
         return Format;
       }
 
-      bool Check(const Binary::Container& rawData) const override
+      bool Check(Binary::View rawData) const override
       {
         return FastCheck(rawData) && Format->Match(rawData);
       }

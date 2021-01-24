@@ -33,18 +33,6 @@ namespace Parameters
       //@}
 
       //@{
-      //! @name Frame duration in microseconds
-      const IntType FRAMEDURATION_PRECISION = 1000000;
-
-      //! Default value- 20mS (50Hz)
-      const IntType FRAMEDURATION_DEFAULT = 20000;
-      const IntType FRAMEDURATION_MIN = 1000;
-      const IntType FRAMEDURATION_MAX = 1000000;
-      //! Parameter name
-      extern const NameType FRAMEDURATION;
-      //@}
-
-      //@{
       //! @name Looped playback
 
       //! Parameter name
@@ -53,8 +41,8 @@ namespace Parameters
       //@}
 
       //@{
-      //! @name Fadein in microseconds
-      const IntType FADEIN_PRECISION = 1000000;
+      //! @name Fadein in seconds
+      const IntType FADEIN_PRECISION = 1;
 
       //! Default value- no fading
       const IntType FADEIN_DEFAULT = 0;
@@ -63,8 +51,8 @@ namespace Parameters
       //@}
 
       //@{
-      //! @name Fadeout in microseconds
-      const IntType FADEOUT_PRECISION = 1000000;
+      //! @name Fadeout in seconds
+      const IntType FADEOUT_PRECISION = 1;
 
       //! Default value- no fading
       const IntType FADEOUT_DEFAULT = 0;

@@ -1,13 +1,22 @@
 package app.zxtune.playlist;
 
 import android.content.ContentResolver;
+import android.content.ContentValues;
 import android.content.Context;
 import android.database.ContentObserver;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.Bundle;
+import android.widget.Toast;
 
 import androidx.annotation.Nullable;
 
+import java.io.IOException;
+import java.util.HashMap;
+
+import javax.annotation.CheckForNull;
+
+import app.zxtune.R;
 import app.zxtune.analytics.Analytics;
 
 public final class ProviderClient {
@@ -44,7 +53,7 @@ public final class ProviderClient {
   public static Long findId(Uri uri) {
     return ContentResolver.SCHEME_CONTENT.equals(uri.getScheme())
         ? PlaylistQuery.idOf(uri)
-               : null;
+        : null;
   }
 
   public final void addItem(Item item) {
@@ -129,5 +138,26 @@ public final class ProviderClient {
       cursor.close();
     }
     return null;
+  }
+
+  // id => path
+  public final HashMap<String, String> getSavedPlaylists(@CheckForNull String id) {
+    final HashMap<String, String> result = new HashMap<>();
+    final Cursor cursor = resolver.query(PlaylistQuery.SAVED, null, id, null, null);
+    if (cursor != null) {
+      try {
+        while (cursor.moveToNext()) {
+          result.put(cursor.getString(0), cursor.getString(1));
+        }
+      } finally {
+        cursor.close();
+      }
+    }
+    return result;
+  }
+
+  public final void savePlaylist(String id, @CheckForNull long[] ids) throws Exception {
+      Provider.save(resolver, id, ids);
+      Analytics.sendPlaylistEvent(Analytics.PLAYLIST_ACTION_SAVE, ids != null ? ids.length : 0);
   }
 }

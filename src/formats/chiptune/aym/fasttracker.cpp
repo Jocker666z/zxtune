@@ -1133,7 +1133,7 @@ namespace Chiptune
       return data.SubView(0, MAX_MODULE_SIZE);
     }
 
-    const std::string FORMAT(
+    const StringView FORMAT(
       "?{8}"         //identifier
       "?{42}"        //title
       "?"            //semicolon
@@ -1167,7 +1167,7 @@ namespace Chiptune
         return Format;
       }
 
-      bool Check(const Binary::Container& rawData) const override
+      bool Check(Binary::View rawData) const override
       {
         const auto data = MakeContainer(rawData);
         return Format->Match(data) && FastCheck(data);

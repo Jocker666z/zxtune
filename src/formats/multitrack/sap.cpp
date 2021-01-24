@@ -35,7 +35,7 @@ namespace Multitrack
   {
     //const std::size_t MAX_SIZE = 1048576;
     
-    const std::string FORMAT =
+    const StringView FORMAT =
       "'S'A'P"
       "0d0a"
       "'A|'N|'D|'S|'D|'S|'N|'T|'F|'I|'M|'P|'C|'T"
@@ -218,7 +218,7 @@ namespace Multitrack
         return Format;
       }
 
-      bool Check(const Binary::Container& rawData) const override
+      bool Check(Binary::View rawData) const override
       {
         return Format->Match(rawData);
       }

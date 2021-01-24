@@ -473,7 +473,7 @@ namespace Chiptune
       return MakePtr<SimpleDumpBuilder>(sizeHint);
     }
 
-    const std::string FORMAT =
+    const StringView FORMAT =
       //first page
       "'O'g'g'S" //signature
       "00"       //version
@@ -519,7 +519,7 @@ namespace Chiptune
         return Format;
       }
 
-      bool Check(const Binary::Container& rawData) const override
+      bool Check(Binary::View rawData) const override
       {
         return Format->Match(rawData);
       }

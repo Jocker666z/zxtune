@@ -199,7 +199,7 @@ namespace Chiptune
       void AddBlock(uint16_t /*addr*/, Binary::View /*data*/) override {}
     };
 
-    const std::string HEADER_FORMAT(
+    const StringView HEADER_FORMAT(
       "'Z'X'A'Y" // uint8_t Signature[4];
       "'E'M'U'L" // only one type is supported now
       "??"       // versions
@@ -228,7 +228,7 @@ namespace Chiptune
         return Format;
       }
 
-      bool Check(const Binary::Container& rawData) const override
+      bool Check(Binary::View rawData) const override
       {
         return GetModulesCount(rawData) == 1;
       }

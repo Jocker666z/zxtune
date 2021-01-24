@@ -85,7 +85,7 @@ namespace Chiptune
              [size](uint16_t o) {return fromLE(o) >= size;});
     }
 
-    const std::string FORMAT(
+    const StringView FORMAT(
       "'T'F'M'c'o'm"
       "???"
       "32|3c"
@@ -109,7 +109,7 @@ namespace Chiptune
         return Format;
       }
 
-      bool Check(const Binary::Container& rawData) const override
+      bool Check(Binary::View rawData) const override
       {
         return FastCheck(rawData);
       }

@@ -566,7 +566,7 @@ namespace Chiptune
       return true;
     }
 
-    const std::string FORMAT(
+    const StringView FORMAT(
       //bank ends
       "(?c0-ff){6}"
       //pat size: 64,48,32,24
@@ -601,7 +601,7 @@ namespace Chiptune
         return Format;
       }
 
-      bool Check(const Binary::Container& rawData) const override
+      bool Check(Binary::View rawData) const override
       {
         return FastCheck(rawData) && Format->Match(rawData);
       }

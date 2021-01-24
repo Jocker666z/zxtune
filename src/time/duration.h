@@ -51,13 +51,26 @@ namespace Time
       class Common = typename std::conditional<Unit::PER_SECOND >= OtherUnit::PER_SECOND, Unit, OtherUnit>::type>
     T Divide(Duration<OtherUnit> rh) const
     {
-      return T(Duration<Common>(*this).Get()) / Duration<Common>(rh).Get();
+      using CastType = typename std::common_type<T, typename Common::StorageType>::type;
+      const CastType divisor = Duration<Common>(*this).Get();
+      const CastType divider = Duration<Common>(rh).Get();
+      return T(divisor / divider);
     }
 
     template<class T = ValueType>
     T ToFrequency() const
     {
       return Get() ? (T(PER_SECOND) / Get()) : T();
+    }
+
+    explicit operator bool () const
+    {
+      return Get() != 0;
+    }
+
+    bool operator ! () const
+    {
+      return Get() == 0;
     }
 
     template<class T>

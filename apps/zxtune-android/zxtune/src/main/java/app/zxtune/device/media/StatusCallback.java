@@ -126,12 +126,7 @@ class StatusCallback implements Callback {
 
   @Override
   public void onError(final String e) {
-    handler.post(new Runnable() {
-      @Override
-      public void run() {
-        Toast.makeText(ctx, e, Toast.LENGTH_SHORT).show();
-      }
-    });
+    handler.post(() -> Toast.makeText(ctx, e, Toast.LENGTH_SHORT).show());
   }
 
   private static void putString(MediaMetadataCompat.Builder builder, String key,
@@ -166,10 +161,14 @@ class StatusCallback implements Callback {
     try {
       final Uri rootLocation = new Uri.Builder().scheme(location.getScheme()).build();
       final VfsObject root = Vfs.resolve(rootLocation);
-      return VfsUtils.getObjectIcon(root);
+      Integer icon = VfsUtils.getObjectIcon(root);
+      if (icon != null) {
+        return icon;
+      }
     } catch (Exception e) {
-      return R.drawable.ic_launcher;
+      Log.w(TAG, e, "Failed to get location icon resource");
     }
+    return R.drawable.ic_launcher;
   }
 
   private static void fillObjectUrls(Uri location,

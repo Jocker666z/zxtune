@@ -14,6 +14,7 @@
 #include <formats/chiptune.h>
 #include <parameters/modifier.h>
 #include <strings/array.h>
+#include <time/duration.h>
 
 namespace Module
 {
@@ -46,8 +47,8 @@ namespace Module
     void SetPlatform(const String& platform);
     
     //Sound
-    void SetFramesFrequency(uint_t hz);
-    void SetFramesParameters(uint_t samplesCount, uint_t sampleRate);
+    void SetFadein(Time::Milliseconds fadein);
+    void SetFadeout(Time::Milliseconds fadeout);
   protected:
     Parameters::Modifier& Delegate;
   };

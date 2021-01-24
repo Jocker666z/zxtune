@@ -489,7 +489,7 @@ namespace Chiptune
       return true;
     }
 
-    const std::string FORMAT(
+    const StringView FORMAT(
       //std::array<PDTOrnament, ORNAMENTS_COUNT> Ornaments;
       "(%xxxxxxx0{16}){11}"
       //std::array<PDTOrnamentLoop, ORNAMENTS_COUNT> OrnLoops;
@@ -546,7 +546,7 @@ namespace Chiptune
         return Format;
       }
 
-      bool Check(const Binary::Container& rawData) const override
+      bool Check(Binary::View rawData) const override
       {
         return FastCheck(rawData) && Format->Match(rawData);
       }

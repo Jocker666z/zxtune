@@ -905,7 +905,7 @@ loc_0_8262:
       return true;
     }
 
-    const std::string FORMAT(
+    const StringView FORMAT(
       "(?00-7f)"
       "(?00-7f)"
       "(?00-7f)"
@@ -932,7 +932,7 @@ loc_0_8262:
         return Format;
       }
 
-      bool Check(const Binary::Container& rawData) const override
+      bool Check(Binary::View rawData) const override
       {
         const auto data = MakeContainer(rawData);
         return Format->Match(data) && FastCheck(data);

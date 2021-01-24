@@ -25,8 +25,6 @@
 #include <module/players/properties_helper.h>
 #include <module/players/properties_meta.h>
 #include <module/players/streaming.h>
-#include <parameters/tracking_helper.h>
-#include <sound/render_params.h>
 #include <sound/resampler.h>
 
 #define FILE_TAG 72CE1906
@@ -40,16 +38,12 @@ namespace Wav
   class Renderer : public Module::Renderer
   {
   public:
-    Renderer(Model::Ptr data, StateIterator::Ptr iterator, Sound::Receiver::Ptr target, Parameters::Accessor::Ptr params)
+    Renderer(Model::Ptr data, Sound::Converter::Ptr target)
       : Tune(std::move(data))
-      , Iterator(std::move(iterator))
-      , State(Iterator->GetStateObserver())
+      , State(MakePtr<SampledState>(Tune->GetTotalSamples(), Tune->GetSamplerate()))
       , Analyzer(Module::CreateSoundAnalyzer())
-      , SoundParams(Sound::RenderParameters::Create(std::move(params)))
       , Target(std::move(target))
-      , Looped()
     {
-      ApplyParameters();
     }
 
     Module::State::Ptr GetState() const override
@@ -62,53 +56,41 @@ namespace Wav
       return Analyzer;
     }
 
-    bool RenderFrame() override
+    Sound::Chunk Render(const Sound::LoopParameters& looped) override
     {
-      try
+      if (!State->IsValid())
       {
-        ApplyParameters();
-
-        auto frame = Tune->RenderFrame(State->Frame());
-        Analyzer->AddSoundData(frame);
-        Resampler->ApplyData(std::move(frame));
-        Iterator->NextFrame(Looped);
-        return Iterator->IsValid();
+        return {};
       }
-      catch (const std::exception&)
+      const auto loops = State->LoopCount();
+      auto frame = Tune->RenderNextFrame();
+      State->Consume(frame.size(), looped);
+      if (State->LoopCount() != loops)
       {
-        return false;
+        Tune->Seek(0);
       }
+      frame = Target->Apply(std::move(frame));
+      Analyzer->AddSoundData(frame);
+      return frame;
     }
 
     void Reset() override
     {
-      SoundParams.Reset();
-      Iterator->Reset();
-      Looped = {};
+      State->Reset();
+      Tune->Seek(0);
     }
 
-    void SetPosition(uint_t frame) override
+    void SetPosition(Time::AtMillisecond request) override
     {
-      Module::SeekIterator(*Iterator, frame);
-    }
-  private:
-    void ApplyParameters()
-    {
-      if (SoundParams.IsChanged())
-      {
-        Looped = SoundParams->Looped();
-        Resampler = Sound::CreateResampler(Tune->GetFrequency(), SoundParams->SoundFreq(), Target);
-      }
+      State->Seek(request);
+      const auto aligned = Tune->Seek(State->AtSample());
+      State->SeekAtSample(aligned);
     }
   private:
     const Model::Ptr Tune;
-    const StateIterator::Ptr Iterator;
-    const Module::State::Ptr State;
+    const SampledState::Ptr State;
     const Module::SoundAnalyzer::Ptr Analyzer;
-    Parameters::TrackingHelper<Sound::RenderParameters> SoundParams;
-    const Sound::Receiver::Ptr Target;
-    Sound::Receiver::Ptr Resampler;
-    Sound::LoopParameters Looped;
+    const Sound::Converter::Ptr Target;
   };
   
   class Holder : public Module::Holder
@@ -116,14 +98,13 @@ namespace Wav
   public:
     Holder(Model::Ptr data, Parameters::Accessor::Ptr props)
       : Data(std::move(data))
-      , Info(CreateStreamInfo(Data->GetFramesCount()))
       , Properties(std::move(props))
     {
     }
 
     Module::Information::Ptr GetModuleInformation() const override
     {
-      return Info;
+      return CreateSampledInfo(Data->GetSamplerate(), Data->GetTotalSamples());
     }
 
     Parameters::Accessor::Ptr GetModuleProperties() const override
@@ -131,13 +112,12 @@ namespace Wav
       return Properties;
     }
 
-    Renderer::Ptr CreateRenderer(Parameters::Accessor::Ptr params, Sound::Receiver::Ptr target) const override
+    Renderer::Ptr CreateRenderer(uint_t samplerate, Parameters::Accessor::Ptr /*params*/) const override
     {
-      return MakePtr<Renderer>(Data, Module::CreateStreamStateIterator(Info), target, params);
+      return MakePtr<Renderer>(Data, Sound::CreateResampler(Data->GetSamplerate(), samplerate));
     }
   private:
     const Model::Ptr Data;
-    const Information::Ptr Info;
     const Parameters::Accessor::Ptr Properties;
   };
   
@@ -189,11 +169,6 @@ namespace Wav
       WavProperties.SamplesCountHint = count;
     }
 
-    void SetFrameDuration(Time::Microseconds frameDuration)
-    {
-      WavProperties.FrameDuration = frameDuration;
-    }
-    
     Model::Ptr GetResult()
     {
       if (!WavProperties.Data)
@@ -248,7 +223,7 @@ namespace Wav
   class Factory : public Module::Factory
   {
   public:
-    Module::Holder::Ptr CreateModule(const Parameters::Accessor& params, const Binary::Container& rawData, Parameters::Container::Ptr properties) const override
+    Module::Holder::Ptr CreateModule(const Parameters::Accessor& /*params*/, const Binary::Container& rawData, Parameters::Container::Ptr properties) const override
     {
       try
       {
@@ -256,12 +231,10 @@ namespace Wav
         DataBuilder dataBuilder(props);
         if (const auto container = Formats::Chiptune::Wav::Parse(rawData, dataBuilder))
         {
-          dataBuilder.SetFrameDuration(Sound::GetFrameDuration(params));
-          if (const auto data = dataBuilder.GetResult())
+          if (auto data = dataBuilder.GetResult())
           {
             props.SetSource(*container);
-            props.SetFramesParameters(data->GetSamplesPerFrame(), data->GetFrequency());
-            return MakePtr<Holder>(data, properties);
+            return MakePtr<Holder>(std::move(data), std::move(properties));
           }
         }
       }
@@ -269,7 +242,7 @@ namespace Wav
       {
         Dbg("Failed to create WAV: %s", e.what());
       }
-      return Module::Holder::Ptr();
+      return {};
     }
   };
 }

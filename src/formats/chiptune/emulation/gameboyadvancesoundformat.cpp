@@ -42,7 +42,7 @@ Offset         Size    Description
       target.SetRom(addr, stream.ReadData(std::min(size, avail)));
     }
 
-    const std::string FORMAT(
+    const StringView FORMAT(
       "'P'S'F"
       "22"
     );
@@ -65,7 +65,7 @@ Offset         Size    Description
         return Format;
       }
 
-      bool Check(const Binary::Container& rawData) const override
+      bool Check(Binary::View rawData) const override
       {
         return Format->Match(rawData);
       }

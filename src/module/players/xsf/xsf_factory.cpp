@@ -51,9 +51,9 @@ namespace XSF
       return GetDelegate().GetModuleProperties();
     }
 
-    Renderer::Ptr CreateRenderer(Parameters::Accessor::Ptr params, Sound::Receiver::Ptr target) const override
+    Renderer::Ptr CreateRenderer(uint_t samplerate, Parameters::Accessor::Ptr params) const override
     {
-      return GetDelegate().CreateRenderer(std::move(params), std::move(target));
+      return GetDelegate().CreateRenderer(samplerate, std::move(params));
     }
     
     Strings::Array Enumerate() const override
@@ -144,7 +144,7 @@ namespace XSF
     if (!hasDuration)
     {
       const MetaInformation::RWPtr newMeta = MakeRWPtr<MetaInformation>();
-      newMeta->Duration = GetDuration(params);
+      newMeta->Duration = GetDefaultDuration(params);
       if (hasMeta)
       {
         newMeta->Merge(*file.Meta);
@@ -176,7 +176,7 @@ namespace XSF
           if (file.Dependencies.empty())
           {
             Dbg("Singlefile");
-            return Delegate->CreateSinglefileModule(file, std::move(properties));
+            return Delegate->CreateSinglefileModule(std::move(file), std::move(properties));
           }
           else
           {

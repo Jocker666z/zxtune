@@ -19,8 +19,7 @@ import androidx.fragment.app.Fragment;
 import androidx.lifecycle.AndroidViewModel;
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
-import androidx.lifecycle.Observer;
-import androidx.lifecycle.ViewModelProviders;
+import androidx.lifecycle.ViewModelProvider;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -53,18 +52,15 @@ public class PlaylistStatisticsFragment extends DialogFragment {
         .setAdapter(adapter, null)
         .create();
     final Model model = Model.of(this);
-    model.getData().observe(this, new Observer<Statistics>() {
-      @Override
-      public void onChanged(Statistics stat) {
-        adapter.clear();
-        if (stat != null) {
-          final String tracks = getResources().getQuantityString(R.plurals.tracks, stat.getTotal(), stat.getTotal());
-          final String duration = stat.getDuration().toString();
-          adapter.add(getString(R.string.statistics_tracks) + ": " + tracks);
-          adapter.add(getString(R.string.statistics_duration) + ": " + duration);
-        } else {
-          adapter.add("Failed to load...");
-        }
+    model.getData().observe(this, stat -> {
+      adapter.clear();
+      if (stat != null) {
+        final String tracks = getResources().getQuantityString(R.plurals.tracks, stat.getTotal(), stat.getTotal());
+        final String duration = stat.getDuration().toString();
+        adapter.add(getString(R.string.statistics_tracks) + ": " + tracks);
+        adapter.add(getString(R.string.statistics_duration) + ": " + duration);
+      } else {
+        adapter.add("Failed to load...");
       }
     });
     final Bundle args = getArguments();
@@ -80,7 +76,8 @@ public class PlaylistStatisticsFragment extends DialogFragment {
     private final MutableLiveData<Statistics> data;
 
     static Model of(Fragment owner) {
-      return ViewModelProviders.of(owner).get(Model.class);
+      return new ViewModelProvider(owner,
+          ViewModelProvider.AndroidViewModelFactory.getInstance(owner.getActivity().getApplication())).get(Model.class);
     }
 
     public Model(Application application) {
@@ -95,12 +92,7 @@ public class PlaylistStatisticsFragment extends DialogFragment {
     }
 
     final void load(@Nullable final long[] ids) {
-      async.execute(new Runnable() {
-        @Override
-        public void run() {
-          data.postValue(client.statistics(ids));
-        }
-      });
+      async.execute(() -> data.postValue(client.statistics(ids)));
     }
   }
 }

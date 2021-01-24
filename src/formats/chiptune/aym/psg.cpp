@@ -75,7 +75,7 @@ namespace Chiptune
          MARKER == header->Marker;
     }
 
-    const std::string FORMAT(
+    const StringView FORMAT(
       "'P'S'G" // uint8_t Sign[3];
       "1a"     // uint8_t Marker;
     );
@@ -98,7 +98,7 @@ namespace Chiptune
         return Format;
       }
 
-      bool Check(const Binary::Container& rawData) const override
+      bool Check(Binary::View rawData) const override
       {
         return FastCheck(rawData);
       }

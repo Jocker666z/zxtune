@@ -212,7 +212,7 @@ namespace Chiptune
       return stub;
     }
     
-    const std::string FORMAT =
+    const StringView FORMAT =
       "%xxx00000 00-01 0000" // timediv
       "? 01-ff ? 00"         // maxtime
       "01-06 000000"         // gdnum
@@ -236,7 +236,7 @@ namespace Chiptune
         return Format;
       }
 
-      bool Check(const Binary::Container& rawData) const override
+      bool Check(Binary::View rawData) const override
       {
         return Format->Match(rawData);
       }

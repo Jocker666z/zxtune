@@ -877,7 +877,7 @@ namespace Chiptune
       return true;
     }
 
-    const std::string FORMAT(
+    const StringView FORMAT(
       "03-0f"  // uint8_t Tempo; 3..15
       "?00-26" // uint16_t PositionsOffset; 0..MAX_MODULE_SIZE
       "?00-27" // uint16_t PatternsOffset; 0..MAX_MODULE_SIZE
@@ -903,7 +903,7 @@ namespace Chiptune
         return Header;
       }
 
-      bool Check(const Binary::Container& rawData) const override
+      bool Check(Binary::View rawData) const override
       {
         return Header->Match(rawData) && SoundTrackerProCompiled::Check(rawData);
       }

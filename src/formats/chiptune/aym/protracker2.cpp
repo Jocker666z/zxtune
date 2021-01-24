@@ -892,7 +892,7 @@ namespace Chiptune
       return true;
     }
 
-    const std::string FORMAT(
+    const StringView FORMAT(
       "02-ff"      // uint8_t Tempo; 2..15
       "01-ff"      // uint8_t Length;
       "00-fe"      // uint8_t Loop; 0..99
@@ -924,7 +924,7 @@ namespace Chiptune
         return Format;
       }
 
-      bool Check(const Binary::Container& rawData) const override
+      bool Check(Binary::View rawData) const override
       {
         const auto data = MakeContainer(rawData);
         return Format->Match(data) && FastCheck(data);

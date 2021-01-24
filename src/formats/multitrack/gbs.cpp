@@ -64,7 +64,7 @@ namespace Multitrack
     
     const std::size_t MAX_SIZE = 1048576;
 
-    const std::string FORMAT =
+    const StringView FORMAT =
       "'G'B'S"
       "01"    //version
       "01-ff" //1 song minimum
@@ -147,7 +147,7 @@ namespace Multitrack
         return Format;
       }
 
-      bool Check(const Binary::Container& rawData) const override
+      bool Check(Binary::View rawData) const override
       {
         return Format->Match(rawData);
       }

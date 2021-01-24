@@ -722,7 +722,7 @@ namespace Chiptune
     }
 
     //Statistic-based format based on 6k+ files
-    const std::string FORMAT(
+    const StringView FORMAT(
     "01-20"       // uint8_t Tempo; 1..50
     "?00-07"      // uint16_t PositionsOffset;
     "?00-07"      // uint16_t OrnamentsOffset;
@@ -786,7 +786,7 @@ namespace Chiptune
         return Format;
       }
 
-      bool Check(const Binary::Container& rawData) const override
+      bool Check(Binary::View rawData) const override
       {
         return FastCheck(rawData) && Format->Match(rawData);
       }

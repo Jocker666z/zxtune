@@ -110,9 +110,9 @@ namespace Module
         out.SetValue(Parameters::ZXTune::Sound::GAIN, Parameters::ZXTune::Sound::GAIN_PRECISION * Volume);
       }
 
-      if (const auto fadeout = Fadeout.Get())
+      if (Fadeout)
       {
-        out.SetValue(Parameters::ZXTune::Sound::FADEOUT, Parameters::ZXTune::Sound::FADEOUT_PRECISION * fadeout / Fadeout.PER_SECOND);
+        props.SetFadeout(Fadeout);
       }
     }
   }

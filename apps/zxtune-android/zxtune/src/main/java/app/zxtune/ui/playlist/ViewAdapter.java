@@ -51,7 +51,7 @@ class ViewAdapter extends ListAdapter<Entry, ViewAdapter.EntryViewHolder> {
       public boolean areContentsTheSame(Entry oldItem, Entry newItem) {
         return TextUtils.equals(oldItem.title, newItem.title)
             && TextUtils.equals(oldItem.author, newItem.author)
-            && 0 == oldItem.duration.compareTo(newItem.duration);
+            && oldItem.duration.equals(newItem.duration);
       }
     });
     this.client = client;
@@ -174,14 +174,11 @@ class ViewAdapter extends ListAdapter<Entry, ViewAdapter.EntryViewHolder> {
 
   @Override
   public void onViewAttachedToWindow(final EntryViewHolder holder) {
-    holder.binding.playlistEntryState.setOnTouchListener(new View.OnTouchListener() {
-      @Override
-      public boolean onTouch(View v, MotionEvent event) {
-        if (event.getAction() == MotionEvent.ACTION_DOWN) {
-          return client.onDrag(holder);
-        }
-        return false;
+    holder.binding.playlistEntryState.setOnTouchListener((v, event) -> {
+      if (event.getAction() == MotionEvent.ACTION_DOWN) {
+        return client.onDrag(holder);
       }
+      return false;
     });
   }
 

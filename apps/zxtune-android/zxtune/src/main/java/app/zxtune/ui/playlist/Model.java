@@ -8,7 +8,7 @@ import androidx.fragment.app.Fragment;
 import androidx.lifecycle.AndroidViewModel;
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
-import androidx.lifecycle.ViewModelProviders;
+import androidx.lifecycle.ViewModelProvider;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -30,21 +30,19 @@ public class Model extends AndroidViewModel {
   private MutableLiveData<List<Entry>> items;
 
   static Model of(Fragment owner) {
-    return ViewModelProviders.of(owner).get(Model.class);
+    return new ViewModelProvider(owner,
+        ViewModelProvider.AndroidViewModelFactory.getInstance(owner.getActivity().getApplication())).get(Model.class);
   }
 
   public Model(Application application) {
     super(application);
     this.client = new ProviderClient(application);
     this.async = Executors.newSingleThreadExecutor();
-    client.registerObserver(new ProviderClient.ChangesObserver() {
-      @Override
-      public void onChange() {
-        if (items == null) {
-          items = new MutableLiveData<>();
-        }
-        loadAsync();
+    client.registerObserver(() -> {
+      if (items == null) {
+        items = new MutableLiveData<>();
       }
+      loadAsync();
     });
   }
 
@@ -62,12 +60,7 @@ public class Model extends AndroidViewModel {
   }
 
   private void loadAsync() {
-    async.execute(new Runnable() {
-      @Override
-      public void run() {
-        load();
-      }
-    });
+    async.execute(this::load);
   }
 
   private void load() {
@@ -86,7 +79,7 @@ public class Model extends AndroidViewModel {
   }
 
   private static Entry createItem(Cursor cursor) {
-    final Entry item = new Entry(
+    return new Entry(
         cursor.getLong(Database.Tables.Playlist.Fields._id.ordinal()),
         Identifier.parse(cursor.getString(Database.Tables.Playlist.Fields.location.ordinal())),
         cursor.getString(Database.Tables.Playlist.Fields.title.ordinal()),
@@ -94,6 +87,5 @@ public class Model extends AndroidViewModel {
         TimeStamp.createFrom(cursor.getLong(Database.Tables.Playlist.Fields.duration.ordinal()),
             TimeUnit.MILLISECONDS)
     );
-    return item;
   }
 }

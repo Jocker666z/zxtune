@@ -21,13 +21,8 @@
 #include <debug/log.h>
 #include <module/attributes.h>
 #include <module/players/analyzer.h>
-#include <module/players/fading.h>
 #include <module/players/streaming.h>
-#include <parameters/tracking_helper.h>
-#include <sound/chunk_builder.h>
-#include <sound/render_params.h>
 #include <sound/resampler.h>
-#include <sound/sound_parameters.h>
 //std includes
 #include <list>
 //3rdparty includes
@@ -110,6 +105,11 @@ namespace SDSF
   class SegaEngine
   {
   public:
+    enum
+    {
+      SAMPLERATE = 44100
+    };
+     
     void Initialize(const ModuleData& data)
     {
       Vers = static_cast<HTLibrary::Version>(data.Version - 0x10);
@@ -123,11 +123,6 @@ namespace SDSF
       SetupSections(data.Sections);
     }
 
-    uint_t GetSoundFrequency() const
-    {
-      return 44100;
-    }
-    
     Sound::Chunk Render(uint_t samples)
     {
       Sound::Chunk result(samples);
@@ -181,21 +176,23 @@ namespace SDSF
     std::unique_ptr<uint8_t[]> Emu;
   };
   
+  const auto FRAME_DURATION = Time::Milliseconds(100);
+
+  uint_t GetSamples(Time::Microseconds period)
+  {
+    return period.Get() * SegaEngine::SAMPLERATE / period.PER_SECOND;
+  }
+
   class Renderer : public Module::Renderer
   {
   public:
-    Renderer(ModuleData::Ptr data, Information::Ptr info, Sound::Receiver::Ptr target, Parameters::Accessor::Ptr params)
+    Renderer(ModuleData::Ptr data, Sound::Converter::Ptr target)
       : Data(std::move(data))
-      , Iterator(Module::CreateStreamStateIterator(info))
-      , State(Iterator->GetStateObserver())
+      , State(MakePtr<TimedState>(Data->Meta->Duration))
       , Analyzer(CreateSoundAnalyzer())
-      , SoundParams(Sound::RenderParameters::Create(params))
-      , Target(Module::CreateFadingReceiver(std::move(params), std::move(info), State, std::move(target)))
-      , Looped()
+      , Target(std::move(target))
     {
       Engine.Initialize(*Data);
-      SamplesPerFrame = Engine.GetSoundFrequency() / Data->GetRefreshRate();
-      ApplyParameters();
     }
 
     Module::State::Ptr GetState() const override
@@ -208,86 +205,56 @@ namespace SDSF
       return Analyzer;
     }
 
-    bool RenderFrame() override
+    Sound::Chunk Render(const Sound::LoopParameters& looped) override
     {
-      try
+      if (!State->IsValid())
       {
-        ApplyParameters();
+        return {};
+      }
+      const auto avail = State->Consume(FRAME_DURATION, looped);
 
-        auto data = Engine.Render(SamplesPerFrame);
-        Analyzer->AddSoundData(data);
-        Resampler->ApplyData(std::move(data));
-        Iterator->NextFrame(Looped);
-        return Iterator->IsValid();
-      }
-      catch (const std::exception&)
-      {
-        return false;
-      }
+      auto data = Target->Apply(Engine.Render(GetSamples(avail)));
+      Analyzer->AddSoundData(data);
+      return data;
     }
 
     void Reset() override
     {
-      SoundParams.Reset();
-      Iterator->Reset();
+      State->Reset();
       Engine.Initialize(*Data);
-      Looped = {};
     }
 
-    void SetPosition(uint_t frame) override
+    void SetPosition(Time::AtMillisecond request) override
     {
-      SeekTune(frame);
-      Module::SeekIterator(*Iterator, frame);
-    }
-  private:
-    void ApplyParameters()
-    {
-      if (SoundParams.IsChanged())
-      {
-        Looped = SoundParams->Looped();
-        Resampler = Sound::CreateResampler(Engine.GetSoundFrequency(), SoundParams->SoundFreq(), Target);
-      }
-    }
-
-    void SeekTune(uint_t frame)
-    {
-      uint_t current = State->Frame();
-      if (frame < current)
+      if (request < State->At())
       {
         Engine.Initialize(*Data);
-        current = 0;
       }
-      if (const uint_t delta = frame - current)
+      if (const auto toSkip = State->Seek(request))
       {
-        Engine.Skip(delta * SamplesPerFrame);
+        Engine.Skip(GetSamples(toSkip));
       }
     }
   private:
     const ModuleData::Ptr Data;
-    const StateIterator::Ptr Iterator;
-    const Module::State::Ptr State;
+    const TimedState::Ptr State;
     const SoundAnalyzer::Ptr Analyzer;
     SegaEngine Engine;
-    uint_t SamplesPerFrame;
-    Parameters::TrackingHelper<Sound::RenderParameters> SoundParams;
-    const Sound::Receiver::Ptr Target;
-    Sound::Receiver::Ptr Resampler;
-    Sound::LoopParameters Looped;
+    const Sound::Converter::Ptr Target;
   };
 
   class Holder : public Module::Holder
   {
   public:
-    Holder(ModuleData::Ptr tune, Information::Ptr info, Parameters::Accessor::Ptr props)
+    Holder(ModuleData::Ptr tune, Parameters::Accessor::Ptr props)
       : Tune(std::move(tune))
-      , Info(std::move(info))
       , Properties(std::move(props))
     {
     }
 
     Module::Information::Ptr GetModuleInformation() const override
     {
-      return Info;
+      return CreateTimedInfo(Tune->Meta->Duration);
     }
 
     Parameters::Accessor::Ptr GetModuleProperties() const override
@@ -295,24 +262,19 @@ namespace SDSF
       return Properties;
     }
 
-    Renderer::Ptr CreateRenderer(Parameters::Accessor::Ptr params, Sound::Receiver::Ptr target) const override
+    Renderer::Ptr CreateRenderer(uint_t samplerate, Parameters::Accessor::Ptr /*params*/) const override
     {
-      return MakePtr<Renderer>(Tune, Info, std::move(target), std::move(params));
+      return MakePtr<Renderer>(Tune, Sound::CreateResampler(SegaEngine::SAMPLERATE, samplerate));
     }
     
     static Ptr Create(ModuleData::Ptr tune, Parameters::Container::Ptr properties)
     {
-      const auto period = Time::Milliseconds::FromFrequency(tune->GetRefreshRate());
-      const auto duration = tune->Meta->Duration;
-      const auto frames = duration.Divide<uint_t>(period);
-      Information::Ptr info = CreateStreamInfo(frames);
       if (tune->Meta)
       {
         tune->Meta->Dump(*properties);
       }
       properties->SetValue(ATTR_PLATFORM, tune->Version == 0x11 ? Platforms::SEGA_SATURN : Platforms::DREAMCAST);
-      Sound::SetFrameDuration(*properties, period);
-      return MakePtr<Holder>(std::move(tune), std::move(info), std::move(properties));
+      return MakePtr<Holder>(std::move(tune), std::move(properties));
     }
   private:
     const ModuleData::Ptr Tune;

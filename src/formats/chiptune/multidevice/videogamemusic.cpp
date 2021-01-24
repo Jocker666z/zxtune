@@ -49,7 +49,7 @@ namespace Chiptune
     
     const std::size_t MIN_SIZE = 256;
 
-    const std::string FORMAT =
+    const StringView FORMAT =
         "'V'g'm' " //signature
         "????"     //eof offset
         //version
@@ -75,7 +75,7 @@ namespace Chiptune
         return Format;
       }
 
-      bool Check(const Binary::Container& rawData) const override
+      bool Check(Binary::View rawData) const override
       {
         return Format->Match(rawData);
       }

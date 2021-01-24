@@ -52,7 +52,7 @@ namespace Chiptune
 
     static_assert(sizeof(RawHeader) == 0x10, "Invalid layout");
 
-    const std::string FORMAT =
+    const StringView FORMAT =
         "'K'S'C'C" //signature
         "??"       //load address
         "??"       //initial data size
@@ -82,7 +82,7 @@ namespace Chiptune
         return Format;
       }
 
-      bool Check(const Binary::Container& rawData) const override
+      bool Check(Binary::View rawData) const override
       {
         return Format->Match(rawData);
       }

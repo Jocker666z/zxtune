@@ -30,7 +30,7 @@ import androidx.lifecycle.AndroidViewModel;
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
 import androidx.lifecycle.Observer;
-import androidx.lifecycle.ViewModelProviders;
+import androidx.lifecycle.ViewModelProvider;
 
 import java.util.ArrayList;
 import java.util.Locale;
@@ -59,12 +59,7 @@ public class AboutFragment extends DialogFragment {
     binding.aboutSystem.setText(getSystemInfo());
 
     binding.aboutPager.setAdapter(new ViewPagerAdapter(binding.aboutPager));
-    Model.of(this).getData().observe(this, new Observer<SparseArrayCompat<ArrayList<String>>>() {
-      @Override
-      public void onChanged(SparseArrayCompat<ArrayList<String>> data) {
-        fillPlugins(data);
-      }
-    });
+    Model.of(this).getData().observe(this, this::fillPlugins);
 
     return binding.getRoot();
   }
@@ -125,7 +120,8 @@ public class AboutFragment extends DialogFragment {
     private final MutableLiveData<SparseArrayCompat<ArrayList<String>>> data = new MutableLiveData<>();
 
     static Model of(Fragment owner) {
-      return ViewModelProviders.of(owner).get(Model.class);
+      return new ViewModelProvider(owner,
+          ViewModelProvider.AndroidViewModelFactory.getInstance(owner.getActivity().getApplication())).get(Model.class);
     }
 
     public Model(Application app) {

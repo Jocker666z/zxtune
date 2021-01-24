@@ -58,7 +58,7 @@ namespace Multitrack
 
     static_assert(sizeof(RawHeader) == 0x20, "Invalid layout");
 
-    const std::string FORMAT =
+    const StringView FORMAT =
         "'H'E'S'M" //signature
         "?"        //version
         "?"        //start song
@@ -71,7 +71,7 @@ namespace Multitrack
 
     const std::size_t MIN_SIZE = 256;
     
-    const uint_t TOTAL_TRACKS_COUNT = 256;
+    const uint_t TOTAL_TRACKS_COUNT = 32;
      
     const RawHeader* GetHeader(Binary::View rawData)
     {
@@ -138,7 +138,7 @@ namespace Multitrack
         return Format;
       }
 
-      bool Check(const Binary::Container& rawData) const override
+      bool Check(Binary::View rawData) const override
       {
         return Format->Match(rawData);
       }

@@ -33,18 +33,18 @@ JNIEXPORT jint JNICALL Java_app_zxtune_core_jni_JniPlayer_analyze
 
 /*
  * Class:     app_zxtune_core_jni_JniPlayer
- * Method:    getPosition
+ * Method:    getPositionMs
  * Signature: ()I
  */
-JNIEXPORT jint JNICALL Java_app_zxtune_core_jni_JniPlayer_getPosition
+JNIEXPORT jint JNICALL Java_app_zxtune_core_jni_JniPlayer_getPositionMs
   (JNIEnv *, jobject);
 
 /*
  * Class:     app_zxtune_core_jni_JniPlayer
- * Method:    setPosition
+ * Method:    setPositionMs
  * Signature: (I)V
  */
-JNIEXPORT void JNICALL Java_app_zxtune_core_jni_JniPlayer_setPosition
+JNIEXPORT void JNICALL Java_app_zxtune_core_jni_JniPlayer_setPositionMs
   (JNIEnv *, jobject, jint);
 
 /*
@@ -62,22 +62,6 @@ JNIEXPORT jint JNICALL Java_app_zxtune_core_jni_JniPlayer_getPerformance
  */
 JNIEXPORT jint JNICALL Java_app_zxtune_core_jni_JniPlayer_getProgress
   (JNIEnv *, jobject);
-
-/*
- * Class:     app_zxtune_core_jni_JniPlayer
- * Method:    getProperty
- * Signature: (Ljava/lang/String;J)J
- */
-JNIEXPORT jlong JNICALL Java_app_zxtune_core_jni_JniPlayer_getProperty__Ljava_lang_String_2J
-  (JNIEnv *, jobject, jstring, jlong);
-
-/*
- * Class:     app_zxtune_core_jni_JniPlayer
- * Method:    getProperty
- * Signature: (Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
- */
-JNIEXPORT jstring JNICALL Java_app_zxtune_core_jni_JniPlayer_getProperty__Ljava_lang_String_2Ljava_lang_String_2
-  (JNIEnv *, jobject, jstring, jstring);
 
 /*
  * Class:     app_zxtune_core_jni_JniPlayer

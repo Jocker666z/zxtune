@@ -9,6 +9,8 @@
 **/
 
 //local includes
+#include "module/players/streaming.h"
+#include "module/players/tracking.h"
 #include "module/players/aym/aym_base.h"
 //common includes
 #include <make_ptr.h>
@@ -16,67 +18,21 @@
 #include <debug/log.h>
 #include <math/numeric.h>
 #include <module/players/analyzer.h>
-#include <parameters/tracking_helper.h>
+#include <sound/loop.h>
 #include <sound/mixer_factory.h>
 
 namespace Module
 {
   const Debug::Stream Dbg("Core::AYBase");
 
-  class AYMHolder : public AYM::Holder
-  {
-  public:
-    explicit AYMHolder(AYM::Chiptune::Ptr chiptune)
-      : Tune(std::move(chiptune))
-    {
-    }
-
-    Information::Ptr GetModuleInformation() const override
-    {
-      return Tune->GetInformation();
-    }
-
-    Parameters::Accessor::Ptr GetModuleProperties() const override
-    {
-      return Tune->GetProperties();
-    }
-
-    Renderer::Ptr CreateRenderer(Parameters::Accessor::Ptr params, Sound::Receiver::Ptr target) const override
-    {
-      return AYM::CreateRenderer(*this, std::move(params), std::move(target));
-    }
-
-    Renderer::Ptr CreateRenderer(Parameters::Accessor::Ptr params, Devices::AYM::Device::Ptr chip) const override
-    {
-      auto trackParams = AYM::TrackParameters::Create(params);
-      auto iterator = Tune->CreateDataIterator(std::move(trackParams));
-      auto soundParams = Sound::RenderParameters::Create(std::move(params));
-      return AYM::CreateRenderer(std::move(soundParams), std::move(iterator), std::move(chip));
-    }
-
-    AYM::Chiptune::Ptr GetChiptune() const override
-    {
-      return Tune;
-    }
-  private:
-    const AYM::Chiptune::Ptr Tune;
-  };
-
   class AYMRenderer : public Renderer
   {
   public:
-    AYMRenderer(Sound::RenderParameters::Ptr params, AYM::DataIterator::Ptr iterator, Devices::AYM::Device::Ptr device)
-      : Params(std::move(params))
-      , Iterator(std::move(iterator))
+    AYMRenderer(Time::Microseconds frameDuration, AYM::DataIterator::Ptr iterator, Devices::AYM::Chip::Ptr device)
+      : Iterator(std::move(iterator))
       , Device(std::move(device))
-      , FrameDuration()
-      , Looped()
+      , FrameDuration(frameDuration)
     {
-#ifndef NDEBUG
-//perform self-test
-      for (; Iterator->IsValid(); Iterator->NextFrame({}));
-      Iterator->Reset();
-#endif
     }
 
     State::Ptr GetState() const override
@@ -86,82 +42,110 @@ namespace Module
 
     Analyzer::Ptr GetAnalyzer() const override
     {
-      return AYM::CreateAnalyzer(Device);
+      return Module::CreateAnalyzer(Device);
     }
 
-    bool RenderFrame() override
+    Sound::Chunk Render(const Sound::LoopParameters& looped) override
     {
-      try
+      if (!Iterator->IsValid())
       {
-        if (Iterator->IsValid())
-        {
-          SynchronizeParameters();
-          if (LastChunk.TimeStamp == Devices::AYM::Stamp())
-          {
-            //first chunk
-            TransferChunk();
-          }
-          Iterator->NextFrame(Looped);
-          LastChunk.TimeStamp += FrameDuration;
-          TransferChunk();
-        }
-        return Iterator->IsValid();
+        return {};
       }
-      catch (const std::exception&)
-      {
-        return false;
-      }
+      TransferChunk();
+      Iterator->NextFrame(looped);
+      LastChunk.TimeStamp += FrameDuration;
+      return Device->RenderTill(LastChunk.TimeStamp);
     }
 
     void Reset() override
     {
-      Params.Reset();
       Iterator->Reset();
       Device->Reset();
       LastChunk.TimeStamp = {};
-      FrameDuration = {};
-      Looped = {};
     }
 
-    void SetPosition(uint_t frameNum) override
+    void SetPosition(Time::AtMillisecond request) override
     {
-      uint_t curFrame = GetState()->Frame();
-      if (curFrame > frameNum)
+      const auto state = GetState();
+      if (request < state->At())
       {
         Iterator->Reset();
         Device->Reset();
         LastChunk.TimeStamp = Devices::AYM::Stamp();
-        curFrame = 0;
       }
-      while (curFrame < frameNum && Iterator->IsValid())
+      while (state->At() < request && Iterator->IsValid())
       {
         TransferChunk();
         Iterator->NextFrame({});
-        ++curFrame;
       }
     }
   private:
-    void SynchronizeParameters()
-    {
-      if (Params.IsChanged())
-      {
-        FrameDuration = Params->FrameDuration();
-        Looped = Params->Looped();
-      }
-    }
-
     void TransferChunk()
     {
       LastChunk.Data = Iterator->GetData();
       Device->RenderData(LastChunk);
     }
   private:
-    Parameters::TrackingHelper<Sound::RenderParameters> Params;
     const AYM::DataIterator::Ptr Iterator;
-    const Devices::AYM::Device::Ptr Device;
+    const Devices::AYM::Chip::Ptr Device;
+    const Time::Duration<Devices::AYM::TimeUnit> FrameDuration;
     Devices::AYM::DataChunk LastChunk;
-    Time::Duration<Devices::AYM::TimeUnit> FrameDuration;
-    Sound::LoopParameters Looped;
+  };
+
+  class AYMHolder : public AYM::Holder
+  {
+  public:
+    AYMHolder(AYM::Chiptune::Ptr chiptune)
+      : Tune(std::move(chiptune))
+    {
+    }
+
+    Information::Ptr GetModuleInformation() const override
+    {
+      if (auto track = Tune->FindTrackModel())
+      {
+        return CreateTrackInfo(Tune->GetFrameDuration(), std::move(track));
+      }
+      else
+      {
+        return CreateStreamInfo(Tune->GetFrameDuration(), Tune->FindStreamModel());
+      }
+    }
+
+    Parameters::Accessor::Ptr GetModuleProperties() const override
+    {
+      return Tune->GetProperties();
+    }
+
+    Renderer::Ptr CreateRenderer(uint_t samplerate, Parameters::Accessor::Ptr params) const override
+    {
+      auto chip = AYM::CreateChip(samplerate, params);
+      auto trackParams = AYM::TrackParameters::Create(std::move(params));
+      auto iterator = Tune->CreateDataIterator(std::move(trackParams));
+      return MakePtr<AYMRenderer>(Tune->GetFrameDuration()/*TODO: speed variation*/,
+        std::move(iterator), std::move(chip));
+    }
+
+    AYM::Chiptune::Ptr GetChiptune() const override
+    {
+      return Tune;
+    }
+
+    void Dump(Devices::AYM::Device& aym) const override
+    {
+      auto trackParams = AYM::TrackParameters::Create(Tune->GetProperties());
+      const auto iterator = Tune->CreateDataIterator(std::move(trackParams));
+      Devices::AYM::DataChunk chunk;
+      for (const auto frameDuration = Tune->GetFrameDuration();
+        iterator->IsValid();
+        chunk.TimeStamp += frameDuration, iterator->NextFrame({}))
+      {
+        chunk.Data = iterator->GetData();
+        aym.RenderData(chunk);
+      }
+    }
+  private:
+    const AYM::Chiptune::Ptr Tune;
   };
 }
 
@@ -174,36 +158,13 @@ namespace Module
       return MakePtr<AYMHolder>(std::move(chiptune));
     }
 
-    Analyzer::Ptr CreateAnalyzer(Devices::AYM::Device::Ptr device)
-    {
-      if (auto src = std::dynamic_pointer_cast<Devices::StateSource>(device))
-      {
-        return Module::CreateAnalyzer(std::move(src));
-      }
-      else
-      {
-        return Module::CreateStubAnalyzer();
-      }
-    }
-
-    Renderer::Ptr CreateRenderer(Sound::RenderParameters::Ptr params, AYM::DataIterator::Ptr iterator, Devices::AYM::Device::Ptr device)
-    {
-      return MakePtr<AYMRenderer>(std::move(params), std::move(iterator), std::move(device));
-    }
-    
-    Devices::AYM::Chip::Ptr CreateChip(Parameters::Accessor::Ptr params, Sound::Receiver::Ptr target)
+    Devices::AYM::Chip::Ptr CreateChip(uint_t samplerate, Parameters::Accessor::Ptr params)
     {
       typedef Sound::ThreeChannelsMatrixMixer MixerType;
       auto mixer = MixerType::Create();
       auto pollParams = Sound::CreateMixerNotificationParameters(std::move(params), mixer);
-      auto chipParams = AYM::CreateChipParameters(std::move(pollParams));
-      return Devices::AYM::CreateChip(std::move(chipParams), std::move(mixer), std::move(target));
-    }
-
-    Renderer::Ptr CreateRenderer(const Holder& holder, Parameters::Accessor::Ptr params, Sound::Receiver::Ptr target)
-    {
-      auto chip = CreateChip(params, std::move(target));
-      return holder.CreateRenderer(std::move(params), std::move(chip));
+      auto chipParams = AYM::CreateChipParameters(samplerate, std::move(pollParams));
+      return Devices::AYM::CreateChip(std::move(chipParams), std::move(mixer));
     }
   }
 }

@@ -8,10 +8,9 @@ import androidx.fragment.app.Fragment;
 import androidx.lifecycle.AndroidViewModel;
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
-import androidx.lifecycle.ViewModelProviders;
+import androidx.lifecycle.ViewModelProvider;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -68,7 +67,8 @@ public class Model extends AndroidViewModel {
   private final VfsProviderClient providerClient;
 
   static Model of(Fragment owner) {
-    return ViewModelProviders.of(owner).get(Model.class);
+    return new ViewModelProvider(owner,
+        ViewModelProvider.AndroidViewModelFactory.getInstance(owner.getActivity().getApplication())).get(Model.class);
   }
 
   public Model(Application application) {
@@ -188,7 +188,7 @@ public class Model extends AndroidViewModel {
       final ArrayList<BreadcrumbsEntry> result = new ArrayList<>();
       providerClient.parents(uri, new VfsProviderClient.ParentsCallback() {
         @Override
-        public void onObject(Uri uri, String name, int icon) {
+        public void onObject(Uri uri, String name, @Nullable Integer icon) {
           final BreadcrumbsEntry entry = new BreadcrumbsEntry(uri, name, icon);
           result.add(entry);
         }
@@ -252,7 +252,8 @@ public class Model extends AndroidViewModel {
       // assume already resolved
       providerClient.search(newState.uri, newState.query, new VfsProviderClient.ListingCallback() {
         @Override
-        public void onDir(Uri uri, String name, String description, int icon, boolean hasFeed) {
+        public void onDir(Uri uri, String name, String description, @Nullable Integer icon,
+                          boolean hasFeed) {
 
         }
 
@@ -291,7 +292,8 @@ public class Model extends AndroidViewModel {
     final ObjectType[] result = new ObjectType[]{null};
     providerClient.resolve(uri, new VfsProviderClient.ListingCallback() {
       @Override
-      public void onDir(Uri uri, String name, String description, int icon, boolean hasFeed) {
+      public void onDir(Uri uri, String name, String description, @Nullable Integer icon,
+                        boolean hasFeed) {
         result[0] = hasFeed ? ObjectType.DIR_WITH_FEED : ObjectType.DIR;
       }
 
@@ -313,7 +315,8 @@ public class Model extends AndroidViewModel {
     final ArrayList<ListingEntry> result = new ArrayList<>();
     providerClient.list(uri, new VfsProviderClient.ListingCallback() {
       @Override
-      public void onDir(Uri uri, String name, String description, int icon, boolean hasFeed) {
+      public void onDir(Uri uri, String name, String description, @Nullable Integer icon,
+                        boolean hasFeed) {
         final ListingEntry entry = new ListingEntry(uri, name, description);
         entry.type = ListingEntry.FOLDER;
         entry.icon = icon;

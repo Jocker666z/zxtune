@@ -122,13 +122,13 @@ public class PlaybackServiceLocal implements PlaybackService, Releaseable {
   private void restoreSession(Uri uri, TimeStamp position) throws Exception {
     final Iterator iter = IteratorFactory.createIterator(context, uri);
     final PlayableItem newItem = iter.getItem();
-    final Holder newHolder = new Holder(newItem);
-    newHolder.source.initialize(player.getSampleRate());
+    final Holder newHolder = new Holder(newItem, player.getSampleRate());
     newHolder.source.setPosition(position);
     if (iterator.compareAndSet(IteratorStub.instance(), iter)) {
       setNewHolder(newHolder);
     } else {
       Log.d(TAG, "Drop stale session restore");
+      newHolder.release();
     }
   }
 
@@ -159,7 +159,7 @@ public class PlaybackServiceLocal implements PlaybackService, Releaseable {
             break;
           }
         } catch (Exception e) {
-          if (batch.compareAndSet(uri, null)) {
+          if (batch.compareAndSet(uri, null) || batch.compareAndSet(null, null)) {
             throw e;
           }
         }
@@ -168,7 +168,7 @@ public class PlaybackServiceLocal implements PlaybackService, Releaseable {
   }
 
   private void setNewItem(PlayableItem newItem) {
-    final Holder newHolder = new Holder(newItem);
+    final Holder newHolder = new Holder(newItem, player.getSampleRate());
     setNewHolder(newHolder);
   }
 
@@ -243,17 +243,14 @@ public class PlaybackServiceLocal implements PlaybackService, Releaseable {
   }
 
   private void executeCommandImpl(final Command cmd) {
-    executor.execute(new Runnable() {
-      @Override
-      public void run() {
-        try {
-          cmd.execute();
-        } catch (Exception e) {//IOException|InterruptedException
-          Log.w(TAG, e, cmd.getClass().getName());
-          final Throwable cause = e.getCause();
-          final String msg = cause != null ? cause.getMessage() : e.getMessage();
-          callbacks.onError(msg);
-        }
+    executor.execute(() -> {
+      try {
+        cmd.execute();
+      } catch (Exception e) {//IOException|InterruptedException
+        Log.w(TAG, e, cmd.getClass().getName());
+        final Throwable cause = e.getCause();
+        final String msg = cause != null ? cause.getMessage() : e.getMessage();
+        callbacks.onError(msg);
       }
     });
   }
@@ -277,9 +274,9 @@ public class PlaybackServiceLocal implements PlaybackService, Releaseable {
       this.visualizer = VisualizerStub.instance();
     }
 
-    Holder(PlayableItem item) {
+    Holder(PlayableItem item, int samplerate) {
       this.item = item;
-      this.player = item.getModule().createPlayer();
+      this.player = item.getModule().createPlayer(samplerate);
       this.source = new SeekableSamplesSource(player);
       this.visualizer = new PlaybackVisualizer(player);
     }
@@ -376,12 +373,7 @@ public class PlaybackServiceLocal implements PlaybackService, Releaseable {
 
     @Override
     public void stop() {
-      executeCommand(new Command() {
-        @Override
-        public void execute() {
-          stopSync();
-        }
-      });
+      executeCommand(PlaybackServiceLocal.this::stopSync);
     }
 
     @Override

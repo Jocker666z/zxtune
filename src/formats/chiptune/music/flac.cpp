@@ -223,7 +223,7 @@ namespace Chiptune
       return stub;
     }
     
-    const std::string FORMAT =
+    const StringView FORMAT =
       //ID3 tag    flac stream
       "'I         |'f"
       "'D         |'L"
@@ -250,7 +250,7 @@ namespace Chiptune
         return Format;
       }
 
-      bool Check(const Binary::Container& rawData) const override
+      bool Check(Binary::View rawData) const override
       {
         return Format->Match(rawData);
       }

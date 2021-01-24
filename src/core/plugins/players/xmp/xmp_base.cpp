@@ -13,6 +13,7 @@
 #include "core/plugins/players/plugin.h"
 //common includes
 #include <contract.h>
+#include <make_ptr.h>
 //library includes
 #include <binary/format_factories.h>
 #include <core/core_parameters.h>
@@ -22,9 +23,7 @@
 #include <module/track_state.h>
 #include <module/players/properties_helper.h>
 #include <parameters/tracking_helper.h>
-#include <sound/chunk_builder.h>
-#include <sound/render_params.h>
-#include <sound/sound_parameters.h>
+#include <sound/loop.h>
 #include <strings/encoding.h>
 #include <strings/trim.h>
 #include <time/duration.h>
@@ -123,8 +122,18 @@ namespace Xmp
 
     Information(xmp_module module, DurationType duration)
       : Info(std::move(module))
-      , Frames(duration.Divide<uint_t>(GetFrameDuration()))
+      , TotalDuration(duration)
     {
+    }
+
+    Time::Milliseconds Duration() const override
+    {
+      return TotalDuration.CastTo<Time::Millisecond>();
+    }
+
+    Time::Milliseconds LoopDuration() const override
+    {
+      return Duration();//TODO
     }
 
     uint_t PositionsCount() const override
@@ -137,34 +146,13 @@ namespace Xmp
       return Info.rst;
     }
 
-    uint_t FramesCount() const override
-    {
-      return Frames;
-    }
-
-    uint_t LoopFrame() const override
-    {
-      return 0;//TODO
-    }
-
     uint_t ChannelsCount() const override
     {
       return Info.chn;
     }
-
-    uint_t Tempo() const override
-    {
-      return Info.spd;
-    }
-
-    DurationType GetFrameDuration() const
-    {
-      //fps = 50 * bpm / 125
-      return DurationType(DurationType::PER_SECOND * 125 / (50 * Info.bpm));
-    }
   private:
     const xmp_module Info;
-    const int Frames;
+    const DurationType TotalDuration;
   };
 
   typedef std::shared_ptr<xmp_frame_info> StatePtr;
@@ -172,15 +160,21 @@ namespace Xmp
   class TrackState : public Module::TrackState
   {
   public:
-    TrackState(Information::Ptr info, StatePtr state)
-      : FrameDuration(info->GetFrameDuration())
-      , State(std::move(state))
+    using Ptr = std::shared_ptr<TrackState>;
+
+    TrackState(StatePtr state)
+      : State(std::move(state))
     {
     }
 
-    uint_t Frame() const override
+    Time::AtMillisecond At() const override
     {
-      return DurationType(State->time).Divide<uint_t>(FrameDuration);
+      return Time::AtMillisecond() + DurationType(State->time);
+    }
+
+    Time::Milliseconds Total() const override
+    {
+      return TotalDuration.CastTo<Time::Millisecond>();
     }
 
     uint_t LoopCount() const override
@@ -217,9 +211,19 @@ namespace Xmp
     {
       return State->virt_used;//????
     }
+
+    void Add(Time::Microseconds played)
+    {
+      TotalDuration += played;
+    }
+
+    void Reset()
+    {
+      TotalDuration = {};
+    }
   private:
-    const DurationType FrameDuration;
     const StatePtr State;
+    Time::Microseconds TotalDuration;
   };
 
   class Analyzer : public Module::Analyzer
@@ -257,19 +261,16 @@ namespace Xmp
   class Renderer : public Module::Renderer
   {
   public:
-    Renderer(Context::Ptr ctx, Sound::Receiver::Ptr target, Parameters::Accessor::Ptr params, Information::Ptr info)
+    Renderer(uint_t channels, Context::Ptr ctx, uint_t samplerate, Parameters::Accessor::Ptr params)
       : Ctx(std::move(ctx))
       , State(new xmp_frame_info())
-      , Target(std::move(target))
-      , Params(params)
-      , SoundParams(Sound::RenderParameters::Create(std::move(params)))
-      , Track(MakePtr<TrackState>(info, State))
-      , Analysis(MakePtr<Analyzer>(info->ChannelsCount(), State))
-      , FrameDuration(info->GetFrameDuration())
-      , SoundFreq(SoundParams->SoundFreq())
-      , Looped(SoundParams->Looped())
+      , Params(std::move(params))
+      , Track(MakePtr<TrackState>(State))
+      , Analysis(MakePtr<Analyzer>(channels, State))
+      , SoundFreq(samplerate)
     {
-      Ctx->Call(&::xmp_start_player, static_cast<int>(SoundFreq), 0);
+      //Required in order to perform initial seeking
+      Ctx->Call(&::xmp_start_player, static_cast<int>(samplerate), 0);
     }
 
     ~Renderer() override
@@ -287,56 +288,47 @@ namespace Xmp
       return Analysis;
     }
 
-    bool RenderFrame() override
+    Sound::Chunk Render(const Sound::LoopParameters& looped) override
     {
       static_assert(Sound::Sample::CHANNELS == 2, "Incompatible sound channels count");
       static_assert(Sound::Sample::BITS == 16, "Incompatible sound bits count");
       static_assert(Sound::Sample::MID == 0, "Incompatible sound sample type");
       static_assert(sizeof(Sound::Sample) == 4, "Incompatible sound sample size");
 
-      try
+      if (State->loop_count == 0 || looped(State->loop_count))
       {
         ApplyParameters();
         Ctx->Call(&::xmp_play_frame);
         Ctx->Call(&::xmp_get_frame_info, State.get());
-        Sound::ChunkBuilder builder;
         if (const std::size_t bytes = State->buffer_size)
         {
           const std::size_t samples = bytes / sizeof(Sound::Sample);
-          builder.Reserve(samples);
-          std::memcpy(builder.Allocate(samples), State->buffer, bytes);
-          Target->ApplyData(builder.CaptureResult());
+          Track->Add(Time::Microseconds::FromRatio(samples, SoundFreq));
+          Sound::Chunk chunk(samples);
+          std::memcpy(chunk.data(), State->buffer, samples * sizeof(Sound::Sample));
+          return chunk;
         }
-        return State->loop_count == 0 || Looped(State->loop_count);
       }
-      catch (const std::exception&)
-      {
-        return false;
-      }
+      return {};
     }
 
     void Reset() override
     {
       Params.Reset();
       Ctx->Call(&::xmp_restart_module);
+      Track->Reset();
     }
 
-    void SetPosition(uint_t frame) override
+    void SetPosition(Time::AtMillisecond request) override
     {
-      Ctx->Call(&::xmp_seek_time, static_cast<int>(FrameDuration.Get() * frame));
+      static_assert(request.PER_SECOND == DurationType::PER_SECOND, "Fail");
+      Ctx->Call(&::xmp_seek_time, int(request.Get()));
     }
   private:
     void ApplyParameters()
     {
       if (Params.IsChanged())
       {
-        if (SoundFreq != SoundParams->SoundFreq())
-        {
-          SoundFreq = SoundParams->SoundFreq();
-          Ctx->Call(&::xmp_end_player);
-          Ctx->Call(&::xmp_start_player, static_cast<int>(SoundFreq), 0);
-        }
-        Looped = SoundParams->Looped();
         Parameters::IntType val = Parameters::ZXTune::Core::DAC::INTERPOLATION_DEFAULT;
         Params->FindValue(Parameters::ZXTune::Core::DAC::INTERPOLATION, val);
         const int interpolation = val != Parameters::ZXTune::Core::DAC::INTERPOLATION_NO ? XMP_INTERP_SPLINE : XMP_INTERP_LINEAR;
@@ -346,22 +338,18 @@ namespace Xmp
   private:
     const Context::Ptr Ctx;
     const StatePtr State;
-    const Sound::Receiver::Ptr Target;
     Parameters::TrackingHelper<Parameters::Accessor> Params;
-    const Sound::RenderParameters::Ptr SoundParams;
     const TrackState::Ptr Track;
     const Analyzer::Ptr Analysis;
-    const DurationType FrameDuration;
-    uint_t SoundFreq;
-    Sound::LoopParameters Looped;
+    const uint_t SoundFreq;
   };
 
   class Holder : public Module::Holder
   {
   public:
-    explicit Holder(Context::Ptr ctx, const xmp_module_info& modInfo, DurationType duration, Parameters::Accessor::Ptr props)
+    Holder(Context::Ptr ctx, Information::Ptr info, Parameters::Accessor::Ptr props)
       : Ctx(std::move(ctx))
-      , Info(MakePtr<Information>(*modInfo.mod, duration))
+      , Info(std::move(info))
       , Properties(std::move(props))
     {
     }
@@ -376,9 +364,9 @@ namespace Xmp
       return Properties;
     }
 
-    Renderer::Ptr CreateRenderer(Parameters::Accessor::Ptr params, Sound::Receiver::Ptr target) const override
+    Renderer::Ptr CreateRenderer(uint_t samplerate, Parameters::Accessor::Ptr params) const override
     {
-      return MakePtr<Renderer>(Ctx, target, params, Info);
+      return MakePtr<Renderer>(Info->ChannelsCount(), Ctx, samplerate, std::move(params));
     }
   private:
     const Context::Ptr Ctx;
@@ -413,7 +401,7 @@ namespace Xmp
       return Fmt;
     }
 
-    bool Check(const Binary::Container& rawData) const override
+    bool Check(Binary::View rawData) const override
     {
       return Fmt->Match(rawData);
     }
@@ -458,7 +446,7 @@ namespace Xmp
     {
       try
       {
-        const Context::Ptr ctx = MakePtr<Context>(rawData, Desc.Loader);
+        auto ctx = MakePtr<Context>(rawData, Desc.Loader);
         xmp_module_info modInfo;
         ctx->Call(&::xmp_get_module_info, &modInfo);
         xmp_frame_info frmInfo;
@@ -473,16 +461,19 @@ namespace Xmp
           props.SetComment(DecodeString(comment));
         }
         ParseStrings(*modInfo.mod, props);
-        const Binary::Container::Ptr data = rawData.GetSubcontainer(0, modInfo.size);
-        const Formats::Chiptune::Container::Ptr source = Formats::Chiptune::CreateCalculatingCrcContainer(data, 0, modInfo.size);
-        props.SetSource(*source);
+        if (auto data = rawData.GetSubcontainer(0, modInfo.size))
+        {
+          const auto source = Formats::Chiptune::CreateCalculatingCrcContainer(std::move(data), 0, modInfo.size);
+          props.SetSource(*source);
 
-        return MakePtr<Holder>(ctx, modInfo, DurationType(frmInfo.total_time), properties);
+          auto info = MakePtr<Information>(*modInfo.mod, DurationType(frmInfo.total_time));
+          return MakePtr<Holder>(std::move(ctx), std::move(info), std::move(properties));
+        }
       }
       catch (const std::exception&)
       {
-        return Holder::Ptr();
       }
+      return {};
     }
   private:
     const PluginDescription& Desc;
